@@ -21,8 +21,8 @@ MAPMD_API_KEY = os.environ.get('MAPMD_API_KEY', '040c1d37-142e-4f81-adfb-c6f7a7d
 MAPMD_BASE = 'https://map.md/api/companies/webmap'
 OSRM_BASE = 'https://router.project-osrm.org'
 
-client = AsyncIOMotorClient(MONGO_URL)
-db = client[DB_NAME]
+client = AsyncIOMotorClient(MONGO_URL) if MONGO_URL else None
+db = client[DB_NAME] if client else None
 
 app = FastAPI(title='Navigator MD API')
 api_router = APIRouter(prefix='/api')
@@ -30,7 +30,6 @@ api_router = APIRouter(prefix='/api')
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-# Shared HTTP client
 http_client: Optional[httpx.AsyncClient] = None
 
 @app.on_event('startup')
@@ -42,7 +41,8 @@ async def _startup():
 async def _shutdown():
     if http_client:
         await http_client.aclose()
-    client.close()
+    if client:
+        client.close()
 
 
 class RouteRequest(BaseModel):
@@ -50,7 +50,7 @@ class RouteRequest(BaseModel):
     from_lon: float
     to_lat: float
     to_lon: float
-    profile: str = 'driving'  # driving, walking
+    profile: str = 'driving'
 
 
 class SavedSearch(BaseModel):
@@ -66,7 +66,6 @@ async def root():
 
 @api_router.get('/download')
 async def download_project():
-    """Download the full source code as ZIP."""
     zip_path = ROOT_DIR / 'static' / 'navigator-md.zip'
     if not zip_path.exists():
         raise HTTPException(status_code=404, detail='ZIP not found')
@@ -83,7 +82,6 @@ async def search(
     location: str = Query('Florești'),
     lang: str = Query('ro'),
 ):
-    """Search streets / places via map.md API with priority on given city."""
     url = f'{MAPMD_BASE}/search_street'
     params = {'q': q, 'location': location, 'lang': lang}
     auth = (MAPMD_API_KEY, '')
@@ -95,7 +93,6 @@ async def search(
         data = r.json()
         if not isinstance(data, list):
             data = []
-        # Reorder: prefer items where parent_name matches location (case-insensitive substring)
         loc_low = location.lower()
         prio = [it for it in data if isinstance(it, dict) and loc_low in (it.get('parent_name') or '').lower()]
         rest = [it for it in data if it not in prio]
@@ -110,7 +107,6 @@ async def search_general(
     q: str = Query(..., min_length=1),
     lang: str = Query('ro'),
 ):
-    """General search across map.md (streets, cities, places)."""
     url = f'{MAPMD_BASE}/search'
     params = {'q': q, 'lang': lang}
     auth = (MAPMD_API_KEY, '')
@@ -124,7 +120,6 @@ async def search_general(
 
 @api_router.post('/route')
 async def get_route(req: RouteRequest):
-    """Get turn-by-turn route using OSRM public API."""
     profile_map = {'driving': 'driving', 'car': 'driving', 'walking': 'walking', 'foot': 'walking', 'cycling': 'cycling'}
     profile = profile_map.get(req.profile, 'driving')
     coords = f'{req.from_lon},{req.from_lat};{req.to_lon},{req.to_lat}'
@@ -172,24 +167,17 @@ async def get_route(req: RouteRequest):
 
 
 def build_instruction(step: Dict[str, Any]) -> str:
-    """Build human readable instruction in Russian."""
     m = step.get('maneuver', {})
     t = m.get('type', '')
     mod = m.get('modifier', '')
     name = step.get('name', '')
-
     direction_ru = {
-        'left': 'налево',
-        'right': 'направо',
-        'sharp left': 'резко налево',
-        'sharp right': 'резко направо',
-        'slight left': 'слегка налево',
-        'slight right': 'слегка направо',
-        'straight': 'прямо',
-        'uturn': 'разворот',
+        'left': 'налево', 'right': 'направо',
+        'sharp left': 'резко налево', 'sharp right': 'резко направо',
+        'slight left': 'слегка налево', 'slight right': 'слегка направо',
+        'straight': 'прямо', 'uturn': 'разворот',
     }
     d = direction_ru.get(mod, mod)
-
     if t == 'depart':
         return f'Начните движение по {name}' if name else 'Начните движение'
     if t == 'arrive':
@@ -218,7 +206,6 @@ def build_instruction(step: Dict[str, Any]) -> str:
 
 @api_router.get('/map_style')
 async def map_style():
-    """Return a MapLibre style JSON using map.md vector tiles + OSM Bright sprite/fonts."""
     style = {
         'version': 8,
         'name': 'map.md-clone',
@@ -236,7 +223,6 @@ async def map_style():
 
 
 def default_layers():
-    # Minimal pleasant OSM-bright-like style. Color palette resembles map.md (cream / beige / soft green / blue).
     return [
         {'id': 'background', 'type': 'background', 'paint': {'background-color': '#f5efe1'}},
         {'id': 'water', 'type': 'fill', 'source': 'openmaptiles', 'source-layer': 'water',
