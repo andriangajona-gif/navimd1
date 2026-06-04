@@ -17,7 +17,26 @@ export async function getRoute(fromLat, fromLon, toLat, toLon, profile = 'drivin
   return data;
 }
 
-export const STYLE_URL = `${API}/map_style`;
+export const STYLE_URL = {
+  version: 8,
+  sources: {
+    osm: {
+      type: 'raster',
+      tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
+      tileSize: 256,
+      attribution: '© OpenStreetMap contributors',
+    },
+  },
+  layers: [
+    {
+      id: 'osm-tiles',
+      type: 'raster',
+      source: 'osm',
+      minzoom: 0,
+      maxzoom: 19,
+    },
+  ],
+};
 
 export function speak(text, lang = 'ru-RU') {
   try {
@@ -46,7 +65,6 @@ export function formatDuration(s) {
   return `${h} ч ${m} мин`;
 }
 
-// Distance between two lat/lon points (haversine, meters)
 export function haversine(lat1, lon1, lat2, lon2) {
   const R = 6371000;
   const toRad = (d) => d * Math.PI / 180;
