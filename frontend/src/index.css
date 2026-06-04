@@ -82,3 +82,8 @@ html, body, #root {
   * { @apply border-border; }
   body { @apply bg-background text-foreground; }
 }
+
+/* Hide Emergent badge */
+[class*="emergent"], [id*="emergent"], a[href*="emergent"] {
+  display: none !important;
+}
