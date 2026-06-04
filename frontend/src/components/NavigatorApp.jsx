@@ -5,7 +5,6 @@ import SearchPanel from './SearchPanel';
 import NavigationPanel from './NavigationPanel';
 import { Locate, Volume2, VolumeX, X } from 'lucide-react';
 
-// Helpers for routing: bearing & closest distance to line
 function calcBearing(lat1, lon1, lat2, lon2) {
   const toRad = (d) => d * Math.PI / 180;
   const toDeg = (r) => r * 180 / Math.PI;
@@ -25,8 +24,8 @@ function distToRouteMeters(lat, lon, coords) {
   }
   return min;
 }
+
 function pointToSegMeters(pLat, pLon, aLat, aLon, bLat, bLon) {
-  // Approximate using equirectangular projection
   const R = 6371000;
   const toRad = (d) => d * Math.PI / 180;
   const lat0 = toRad((aLat + bLat) / 2);
@@ -41,7 +40,6 @@ function pointToSegMeters(pLat, pLon, aLat, aLon, bLat, bLon) {
   return Math.hypot(px - cx, py - cy);
 }
 
-// Default Moldova center (Chișinău)
 const DEFAULT_CENTER = [28.8474, 47.0124];
 
 export default function NavigatorApp() {
@@ -52,9 +50,9 @@ export default function NavigatorApp() {
   const watchIdRef = useRef(null);
 
   const [mapReady, setMapReady] = useState(false);
-  const [userPos, setUserPos] = useState(null); // {lat, lon, heading}
-  const [destination, setDestination] = useState(null); // {lat, lon, label}
-  const [route, setRoute] = useState(null); // backend response
+  const [userPos, setUserPos] = useState(null);
+  const [destination, setDestination] = useState(null);
+  const [route, setRoute] = useState(null);
   const [currentStep, setCurrentStep] = useState(0);
   const [voiceOn, setVoiceOn] = useState(true);
   const [profile] = useState('driving');
@@ -66,7 +64,6 @@ export default function NavigatorApp() {
   const lastReroutedAtRef = useRef(0);
   const offRouteSinceRef = useRef(null);
 
-  // Init map
   useEffect(() => {
     if (mapRef.current) return;
     const map = new maplibregl.Map({
@@ -83,7 +80,6 @@ export default function NavigatorApp() {
     });
     map.on('load', () => setMapReady(true));
     map.on('error', (e) => {
-      // eslint-disable-next-line no-console
       console.warn('map err', e?.error?.message || e);
     });
     map.on('dragstart', () => setFollowing(false));
@@ -91,7 +87,6 @@ export default function NavigatorApp() {
     return () => { map.remove(); mapRef.current = null; };
   }, []);
 
-  // Geolocation watch
   useEffect(() => {
     if (!('geolocation' in navigator)) return;
     const onPos = (pos) => {
@@ -99,7 +94,6 @@ export default function NavigatorApp() {
       setUserPos(p);
     };
     const onErr = (e) => {
-      // eslint-disable-next-line no-console
       console.warn('geoloc err', e.message);
       setError('Не удалось получить геолокацию. Разрешите доступ к местоположению в браузере.');
     };
@@ -112,7 +106,6 @@ export default function NavigatorApp() {
     };
   }, []);
 
-  // Update user marker on map
   useEffect(() => {
     if (!mapReady || !userPos) return;
     const map = mapRef.current;
@@ -129,11 +122,9 @@ export default function NavigatorApp() {
       userMarkerRef.current.setLngLat([userPos.lon, userPos.lat]);
     }
     if (following && navStarted && route) {
-      // Compute bearing: prefer GPS heading, fallback to next route point bearing
       let bearing = userPos.heading;
       if (bearing == null || isNaN(bearing)) {
         const coords = route.geometry?.coordinates || [];
-        // Find nearest segment and use its forward bearing
         let best = 0, bestD = Infinity;
         for (let i = 0; i < coords.length - 1; i++) {
           const d = haversine(userPos.lat, userPos.lon, coords[i][1], coords[i][0]);
@@ -155,7 +146,6 @@ export default function NavigatorApp() {
     }
   }, [userPos, mapReady, following, route, navStarted]);
 
-  // Draw / update route line
   const drawRoute = useCallback((geo) => {
     const map = mapRef.current;
     if (!map) return;
@@ -166,12 +156,16 @@ export default function NavigatorApp() {
     } else {
       map.addSource('route', { type: 'geojson', data });
       map.addLayer({
-        id: 'route-line-shadow', type: 'line', source: 'route',
+        id: 'route-line-shadow',
+        type: 'line',
+        source: 'route',
         layout: { 'line-cap': 'round', 'line-join': 'round' },
         paint: { 'line-color': '#1d4ed8', 'line-width': 9, 'line-opacity': 0.25 },
       });
       map.addLayer({
-        id: 'route-line', type: 'line', source: 'route',
+        id: 'route-line',
+        type: 'line',
+        source: 'route',
         layout: { 'line-cap': 'round', 'line-join': 'round' },
         paint: { 'line-color': '#2c7be5', 'line-width': 6 },
       });
@@ -189,7 +183,6 @@ export default function NavigatorApp() {
     offRouteSinceRef.current = null;
   }, []);
 
-  // Handle when a building/destination is selected from SearchPanel
   const handleSelectDestination = useCallback(async (dest) => {
     setError(null);
     if (!userPos) {
@@ -197,7 +190,6 @@ export default function NavigatorApp() {
       return;
     }
     setDestination(dest);
-    // Place destination marker
     const map = mapRef.current;
     if (destMarkerRef.current) destMarkerRef.current.remove();
     const el = document.createElement('div');
@@ -212,8 +204,14 @@ export default function NavigatorApp() {
       setCurrentStep(0);
       setNavStarted(false);
       lastSpokenStepRef.current = -1;
-      drawRoute(r.geometry);
-      // Fit bounds to show full route preview
+
+      // Draw route after map is ready
+      if (map.isStyleLoaded()) {
+        drawRoute(r.geometry);
+      } else {
+        map.once('idle', () => drawRoute(r.geometry));
+      }
+
       const coords = r.geometry.coordinates;
       const bounds = coords.reduce((b, c) => b.extend(c), new maplibregl.LngLatBounds(coords[0], coords[0]));
       map.fitBounds(bounds, { padding: { top: 120, bottom: 240, left: 40, right: 40 }, duration: 800 });
@@ -223,7 +221,6 @@ export default function NavigatorApp() {
     }
   }, [userPos, drawRoute, profile]);
 
-  // Start active navigation (after pressing "Старт")
   const startNavigation = useCallback(() => {
     if (!route || !userPos) return;
     setNavStarted(true);
@@ -252,11 +249,9 @@ export default function NavigatorApp() {
     }
   }, [route, userPos, voiceOn]);
 
-  // Voice navigation + off-route detection (only after Старт)
   useEffect(() => {
     if (!route || !userPos || !navStarted) return;
     const steps = route.steps || [];
-    // Find next step ahead based on proximity to step.location
     let nextIdx = currentStep;
     for (let i = currentStep; i < steps.length; i++) {
       const loc = steps[i].location;
@@ -274,7 +269,6 @@ export default function NavigatorApp() {
       }
     }
 
-    // Off-route detection: if > 40m from route polyline for >3s, recompute
     const coords = route.geometry?.coordinates || [];
     const distOff = distToRouteMeters(userPos.lat, userPos.lon, coords);
     const now = Date.now();
@@ -294,14 +288,13 @@ export default function NavigatorApp() {
             lastSpokenStepRef.current = -1;
             drawRoute(r.geometry);
           })
-          .catch(() => { /* ignore */ })
+          .catch(() => {})
           .finally(() => setRerouting(false));
       }
     } else {
       offRouteSinceRef.current = null;
     }
 
-    // Arrival
     if (destination) {
       const dArr = haversine(userPos.lat, userPos.lon, destination.lat, destination.lon);
       if (dArr < 25 && lastSpokenStepRef.current !== 9999) {
@@ -322,7 +315,6 @@ export default function NavigatorApp() {
     <div className="App">
       <div ref={mapContainerRef} className="absolute inset-0" />
 
-      {/* Search at top */}
       {!route && (
         <SearchPanel
           onSelectDestination={handleSelectDestination}
@@ -330,7 +322,6 @@ export default function NavigatorApp() {
         />
       )}
 
-      {/* Right floating controls */}
       <div className="absolute right-3 top-3 z-30 flex flex-col gap-2">
         <button
           onClick={() => setVoiceOn(v => !v)}
@@ -355,7 +346,6 @@ export default function NavigatorApp() {
         </div>
       )}
 
-      {/* Navigation bottom panel */}
       {route && (
         <NavigationPanel
           route={route}
