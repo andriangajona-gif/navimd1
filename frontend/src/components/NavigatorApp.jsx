@@ -161,7 +161,7 @@ export default function NavigatorApp() {
         source: 'route',
         layout: { 'line-cap': 'round', 'line-join': 'round' },
         paint: { 'line-color': '#1d4ed8', 'line-width': 9, 'line-opacity': 0.25 },
-      });
+      }, 'osm-tiles');
       map.addLayer({
         id: 'route-line',
         type: 'line',
@@ -204,14 +204,11 @@ export default function NavigatorApp() {
       setCurrentStep(0);
       setNavStarted(false);
       lastSpokenStepRef.current = -1;
-
-      // Draw route after map is ready
       if (map.isStyleLoaded()) {
         drawRoute(r.geometry);
       } else {
         map.once('idle', () => drawRoute(r.geometry));
       }
-
       const coords = r.geometry.coordinates;
       const bounds = coords.reduce((b, c) => b.extend(c), new maplibregl.LngLatBounds(coords[0], coords[0]));
       map.fitBounds(bounds, { padding: { top: 120, bottom: 240, left: 40, right: 40 }, duration: 800 });
@@ -268,7 +265,6 @@ export default function NavigatorApp() {
         lastSpokenStepRef.current = nextIdx;
       }
     }
-
     const coords = route.geometry?.coordinates || [];
     const distOff = distToRouteMeters(userPos.lat, userPos.lon, coords);
     const now = Date.now();
@@ -294,7 +290,6 @@ export default function NavigatorApp() {
     } else {
       offRouteSinceRef.current = null;
     }
-
     if (destination) {
       const dArr = haversine(userPos.lat, userPos.lon, destination.lat, destination.lon);
       if (dArr < 25 && lastSpokenStepRef.current !== 9999) {
@@ -314,14 +309,9 @@ export default function NavigatorApp() {
   return (
     <div className="App">
       <div ref={mapContainerRef} className="absolute inset-0" />
-
       {!route && (
-        <SearchPanel
-          onSelectDestination={handleSelectDestination}
-          userPos={userPos}
-        />
+        <SearchPanel onSelectDestination={handleSelectDestination} userPos={userPos} />
       )}
-
       <div className="absolute right-3 top-3 z-30 flex flex-col gap-2">
         <button
           onClick={() => setVoiceOn(v => !v)}
@@ -338,14 +328,12 @@ export default function NavigatorApp() {
           <Locate size={20} />
         </button>
       </div>
-
       {error && (
         <div className="absolute top-20 left-3 right-3 z-40 bg-red-50 border border-red-200 text-red-800 text-sm rounded-lg px-3 py-2 shadow flex items-start gap-2">
           <span className="flex-1">{error}</span>
           <button onClick={() => setError(null)} className="text-red-600"><X size={16} /></button>
         </div>
       )}
-
       {route && (
         <NavigationPanel
           route={route}
