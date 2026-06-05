@@ -17,6 +17,11 @@ export async function getRoute(fromLat, fromLon, toLat, toLon, profile = 'drivin
   return data;
 }
 
+export async function geocodeBuilding(street, building, city = 'Florești') {
+  const { data } = await api.get('/geocode', { params: { street, building, city } });
+  return data;
+}
+
 export const STYLE_URL = {
   version: 8,
   glyphs: 'https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf',
