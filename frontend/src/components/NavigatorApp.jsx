@@ -87,6 +87,7 @@ export default function NavigatorApp() {
  const destMarkerRef = useRef(null);
  const watchIdRef = useRef(null);
  const routeGeomRef = useRef(null);
+ const wakeLockRef = useRef(null);
 
  const [mapReady, setMapReady] = useState(false);
  const [mapInstance, setMapInstance] = useState(null);
@@ -144,6 +145,31 @@ export default function NavigatorApp() {
      if (watchIdRef.current) navigator.geolocation.clearWatch(watchIdRef.current);
    };
  }, []);
+
+ // Wake Lock — экран не гаснет во время навигации
+ useEffect(() => {
+   const requestWakeLock = async () => {
+     try {
+       if ('wakeLock' in navigator) {
+         wakeLockRef.current = await navigator.wakeLock.request('screen');
+       }
+     } catch (e) {
+       console.warn('Wake lock error:', e);
+     }
+   };
+   const releaseWakeLock = () => {
+     if (wakeLockRef.current) {
+       wakeLockRef.current.release();
+       wakeLockRef.current = null;
+     }
+   };
+   if (navStarted) {
+     requestWakeLock();
+   } else {
+     releaseWakeLock();
+   }
+   return () => releaseWakeLock();
+ }, [navStarted]);
 
  useEffect(() => {
    if (!mapReady || !userPos) return;
