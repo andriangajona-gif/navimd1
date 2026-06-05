@@ -114,7 +114,7 @@ export default function NavigatorApp() {
      center: DEFAULT_CENTER,
      zoom: 12,
      minZoom: 6,
-     maxZoom: 19,
+     maxZoom: 18,
      attributionControl: false,
      pitchWithRotate: true,
      dragRotate: true,
@@ -200,7 +200,7 @@ export default function NavigatorApp() {
      }
      map.easeTo({
        center: [userPos.lon, userPos.lat], zoom: 17.5,
-       bearing: bearing ?? 0, pitch: 55, duration: 700,
+       bearing: bearing ?? 0, pitch: 0, duration: 700,
        padding: { top: 280, bottom: 0, left: 0, right: 0 },
      });
    } else if (following && route) {
@@ -218,7 +218,8 @@ export default function NavigatorApp() {
      const d = Math.hypot(coords[i][0] - userPos.lon, coords[i][1] - userPos.lat);
      if (d < minDist) { minDist = d; closestIdx = i; }
    }
-   setRouteCoords(coords.slice(closestIdx));
+   const aheadIdx = Math.min(closestIdx + 3, coords.length - 1);
+   setRouteCoords(coords.slice(aheadIdx));
  }, [userPos, navStarted]);
 
  const drawRoute = useCallback((geo) => {
@@ -277,7 +278,7 @@ export default function NavigatorApp() {
      }
      map.easeTo({
        center: [userPos.lon, userPos.lat], zoom: 17.5,
-       bearing: bearing ?? 0, pitch: 55, duration: 900,
+       bearing: bearing ?? 0, pitch: 0, duration: 900,
        padding: { top: 280, bottom: 0, left: 0, right: 0 },
      });
    }
