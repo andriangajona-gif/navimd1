@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Search, X, MapPin, Building2, ChevronRight, ArrowLeft } from 'lucide-react';
-import { searchStreets } from '../lib/api';
+import { searchStreets, geocodeBuilding } from '../lib/api';
 
 export default function SearchPanel({ onSelectDestination }) {
   const [q, setQ] = useState('');
@@ -13,7 +13,7 @@ export default function SearchPanel({ onSelectDestination }) {
 
   useEffect(() => {
     if (!q || q.length < 2) { setResults([]); return; }
-    if (selectedStreet) return; // showing buildings
+    if (selectedStreet) return;
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(async () => {
       setLoading(true); setError(null);
@@ -32,30 +32,28 @@ export default function SearchPanel({ onSelectDestination }) {
     setSelectedStreet(street);
   };
 
-  const handleBuildingClick = (b) => {
+  const handleBuildingClick = async (b) => {
     if (!selectedStreet) return;
     const c = selectedStreet.centroid || { lat: 47.0124, lon: 28.8474 };
-    // We don't have per-building coordinates from list endpoint, so use street centroid.
-    // This is sufficient for routing; navigator will guide to that street area.
+    let lat = c.lat, lon = c.lon;
+    try {
+      const geo = await geocodeBuilding(selectedStreet.name, b, selectedStreet.parent_name);
+      if (geo.lat && geo.lon) { lat = geo.lat; lon = geo.lon; }
+    } catch (e) { /* fallback to centroid */ }
     onSelectDestination({
-      lat: c.lat, lon: c.lon,
+      lat, lon,
       label: `${selectedStreet.name}, ${b}, ${selectedStreet.parent_name}`,
       street: selectedStreet.name,
       building: b,
       city: selectedStreet.parent_name,
     });
-    // Close panel
-    setOpen(false);
-    setQ('');
-    setSelectedStreet(null);
-    setResults([]);
+    setOpen(false); setQ(''); setSelectedStreet(null); setResults([]);
   };
 
   const reset = () => { setQ(''); setResults([]); setSelectedStreet(null); setError(null); };
 
   return (
     <div className="absolute top-3 left-3 right-3 z-30">
-      {/* Search bar */}
       <div className="bg-white rounded-xl shadow-md flex items-center px-3 py-2 gap-2">
         {selectedStreet ? (
           <button onClick={() => setSelectedStreet(null)} className="text-stone-600" aria-label="back">
@@ -82,7 +80,6 @@ export default function SearchPanel({ onSelectDestination }) {
         )}
       </div>
 
-      {/* Dropdown */}
       {open && (q.length >= 2 || selectedStreet) && (
         <div className="mt-2 bg-white rounded-xl shadow-lg max-h-[60vh] overflow-y-auto scrollbar-thin">
           {loading && (
@@ -91,11 +88,9 @@ export default function SearchPanel({ onSelectDestination }) {
           {error && (
             <div className="px-4 py-3 text-sm text-red-600">{error}</div>
           )}
-
           {!selectedStreet && !loading && results.length === 0 && q.length >= 2 && !error && (
             <div className="px-4 py-3 text-sm text-stone-500">Ничего не найдено</div>
           )}
-
           {!selectedStreet && results.map((s) => (
             <button
               key={s.id}
@@ -114,7 +109,6 @@ export default function SearchPanel({ onSelectDestination }) {
               <ChevronRight size={16} className="text-stone-400 shrink-0" />
             </button>
           ))}
-
           {selectedStreet && (
             <div className="p-3">
               <div className="text-[12px] text-stone-500 mb-2 px-1">Номера домов ({selectedStreet.buildings?.length || 0})</div>
