@@ -308,7 +308,7 @@ export default function NavigatorApp() {
      {!route && (
        <SearchPanel onSelectDestination={handleSelectDestination} userPos={userPos} />
      )}
-     <div className="absolute right-3 top-3 z-30">
+     <div className="absolute right-3 bottom-48 z-30 flex flex-col gap-2">
        <button
          onClick={() => setVoiceOn(v => !v)}
          className="w-11 h-11 rounded-full bg-white shadow-md flex items-center justify-center text-stone-700 active:scale-95 transition-transform"
@@ -316,8 +316,6 @@ export default function NavigatorApp() {
        >
          {voiceOn ? <Volume2 size={20} /> : <VolumeX size={20} />}
        </button>
-     </div>
-     <div className="absolute right-3 bottom-48 z-30">
        <button
          onClick={recenter}
          className="w-11 h-11 rounded-full bg-white shadow-md flex items-center justify-center text-stone-700 active:scale-95 transition-transform"
