@@ -86,6 +86,7 @@ export default function NavigatorApp() {
  const userMarkerRef = useRef(null);
  const destMarkerRef = useRef(null);
  const watchIdRef = useRef(null);
+ const routeGeomRef = useRef(null);
 
  const [mapReady, setMapReady] = useState(false);
  const [mapInstance, setMapInstance] = useState(null);
@@ -181,7 +182,21 @@ export default function NavigatorApp() {
    }
  }, [userPos, mapReady, following, route, navStarted]);
 
+ // Обрезаем линию маршрута по позиции пользователя
+ useEffect(() => {
+   if (!userPos || !routeGeomRef.current || !navStarted) return;
+   const coords = routeGeomRef.current;
+   let closestIdx = 0;
+   let minDist = Infinity;
+   for (let i = 0; i < coords.length; i++) {
+     const d = Math.hypot(coords[i][0] - userPos.lon, coords[i][1] - userPos.lat);
+     if (d < minDist) { minDist = d; closestIdx = i; }
+   }
+   setRouteCoords(coords.slice(closestIdx));
+ }, [userPos, navStarted]);
+
  const drawRoute = useCallback((geo) => {
+   routeGeomRef.current = geo.coordinates;
    setRouteCoords(geo.coordinates);
  }, []);
 
@@ -189,6 +204,7 @@ export default function NavigatorApp() {
    if (destMarkerRef.current) { destMarkerRef.current.remove(); destMarkerRef.current = null; }
    const map = mapRef.current;
    if (map) map.easeTo({ pitch: 0, bearing: 0, zoom: 14, duration: 600 });
+   routeGeomRef.current = null;
    setRoute(null); setRouteCoords(null); setDestination(null);
    setCurrentStep(0); setNavStarted(false); lastSpokenStepRef.current = -1;
    offRouteSinceRef.current = null;
