@@ -168,28 +168,22 @@ export default function NavigatorApp() {
    };
  }, [navStarted]);
 
+ // Держим экран активным без Wake Lock API (не вызывает диалог iOS)
  useEffect(() => {
-   const requestWakeLock = async () => {
-     try {
-       if ('wakeLock' in navigator) {
-         wakeLockRef.current = await navigator.wakeLock.request('screen');
-       }
-     } catch (e) {
-       console.warn('Wake lock error:', e);
-     }
-   };
-   const releaseWakeLock = () => {
+   let interval = null;
+   if (navStarted) {
+     interval = setInterval(() => {
+       // Просто держим JS активным каждые 30 секунд
+       const _ = Date.now();
+     }, 30000);
+   }
+   return () => {
+     if (interval) clearInterval(interval);
      if (wakeLockRef.current) {
-       wakeLockRef.current.release();
+       try { wakeLockRef.current.release(); } catch (e) {}
        wakeLockRef.current = null;
      }
    };
-   if (navStarted) {
-     requestWakeLock();
-   } else {
-     releaseWakeLock();
-   }
-   return () => releaseWakeLock();
  }, [navStarted]);
 
  useEffect(() => {
@@ -442,7 +436,6 @@ export default function NavigatorApp() {
          <button onClick={() => setError(null)} className="text-red-600"><X size={16} /></button>
        </div>
      )}
-
      {showSavePrompt && (
        <div className="absolute inset-0 z-50 bg-black/50 flex items-center justify-center px-4">
          <div className="bg-white rounded-2xl p-5 shadow-xl w-full max-w-sm">
@@ -467,7 +460,6 @@ export default function NavigatorApp() {
          </div>
        </div>
      )}
-
      {route && !showSavePrompt && (
        <NavigationPanel
          route={route}
