@@ -1,14 +1,15 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Search, X, MapPin, Building2, ChevronRight, ArrowLeft } from 'lucide-react';
+import { Search, X, MapPin, Building2, ChevronRight, ArrowLeft, Star } from 'lucide-react';
 import { searchStreets, geocodeBuilding } from '../lib/api';
 
-export default function SearchPanel({ onSelectDestination }) {
+export default function SearchPanel({ onSelectDestination, getCustomRoute }) {
   const [q, setQ] = useState('');
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [results, setResults] = useState([]);
   const [selectedStreet, setSelectedStreet] = useState(null);
   const [error, setError] = useState(null);
+  const [pendingDest, setPendingDest] = useState(null);
   const debounceRef = useRef(null);
 
   useEffect(() => {
@@ -39,18 +40,73 @@ export default function SearchPanel({ onSelectDestination }) {
     try {
       const geo = await geocodeBuilding(selectedStreet.name, b, selectedStreet.parent_name);
       if (geo.lat && geo.lon) { lat = geo.lat; lon = geo.lon; }
-    } catch (e) { /* fallback to centroid */ }
-    onSelectDestination({
+    } catch (e) {}
+
+    const dest = {
       lat, lon,
       label: `${selectedStreet.name}, ${b}, ${selectedStreet.parent_name}`,
       street: selectedStreet.name,
       building: b,
       city: selectedStreet.parent_name,
-    });
-    setOpen(false); setQ(''); setSelectedStreet(null); setResults([]);
+    };
+
+    // Проверяем есть ли сохранённый маршрут
+    const custom = getCustomRoute ? getCustomRoute(dest.label) : null;
+    if (custom) {
+      setPendingDest(dest);
+      setOpen(false);
+    } else {
+      onSelectDestination(dest, false);
+      setOpen(false); setQ(''); setSelectedStreet(null); setResults([]);
+    }
   };
 
-  const reset = () => { setQ(''); setResults([]); setSelectedStreet(null); setError(null); };
+  const handleChooseStandard = () => {
+    if (pendingDest) {
+      onSelectDestination(pendingDest, false);
+      setPendingDest(null); setQ(''); setSelectedStreet(null); setResults([]);
+    }
+  };
+
+  const handleChooseCustom = () => {
+    if (pendingDest) {
+      onSelectDestination(pendingDest, true);
+      setPendingDest(null); setQ(''); setSelectedStreet(null); setResults([]);
+    }
+  };
+
+  const reset = () => { setQ(''); setResults([]); setSelectedStreet(null); setError(null); setPendingDest(null); };
+
+  // Диалог выбора маршрута
+  if (pendingDest) {
+    return (
+      <div className="absolute inset-0 z-50 bg-black/50 flex items-end">
+        <div className="bg-white rounded-t-2xl p-5 w-full shadow-xl">
+          <div className="text-[17px] font-bold text-stone-900 mb-1">Выберите маршрут</div>
+          <div className="text-[13px] text-stone-500 mb-4">{pendingDest.label}</div>
+          <button
+            onClick={handleChooseCustom}
+            className="w-full mb-3 py-3.5 rounded-xl bg-amber-500 text-white text-[15px] font-semibold flex items-center justify-center gap-2"
+          >
+            <Star size={18} fill="currentColor" />
+            Мой маршрут
+          </button>
+          <button
+            onClick={handleChooseStandard}
+            className="w-full py-3.5 rounded-xl border border-stone-200 text-stone-700 text-[15px] font-medium"
+          >
+            Стандартный маршрут
+          </button>
+          <button
+            onClick={reset}
+            className="w-full mt-2 py-2 text-stone-400 text-[14px]"
+          >
+            Отмена
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="absolute top-3 left-3 right-3 z-30">
@@ -82,12 +138,8 @@ export default function SearchPanel({ onSelectDestination }) {
 
       {open && (q.length >= 2 || selectedStreet) && (
         <div className="mt-2 bg-white rounded-xl shadow-lg max-h-[60vh] overflow-y-auto scrollbar-thin">
-          {loading && (
-            <div className="px-4 py-3 text-sm text-stone-500">Поиск...</div>
-          )}
-          {error && (
-            <div className="px-4 py-3 text-sm text-red-600">{error}</div>
-          )}
+          {loading && <div className="px-4 py-3 text-sm text-stone-500">Поиск...</div>}
+          {error && <div className="px-4 py-3 text-sm text-red-600">{error}</div>}
           {!selectedStreet && !loading && results.length === 0 && q.length >= 2 && !error && (
             <div className="px-4 py-3 text-sm text-stone-500">Ничего не найдено</div>
           )}
@@ -102,9 +154,7 @@ export default function SearchPanel({ onSelectDestination }) {
               </div>
               <div className="flex-1 min-w-0">
                 <div className="text-[14px] text-stone-800 font-medium truncate">{s.name}</div>
-                <div className="text-[12px] text-stone-500 truncate">
-                  {s.parent_name} · {s.count} домов
-                </div>
+                <div className="text-[12px] text-stone-500 truncate">{s.parent_name} · {s.count} домов</div>
               </div>
               <ChevronRight size={16} className="text-stone-400 shrink-0" />
             </button>
