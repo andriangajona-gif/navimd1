@@ -168,12 +168,10 @@ export default function NavigatorApp() {
    };
  }, [navStarted]);
 
- // Держим экран активным без Wake Lock API (не вызывает диалог iOS)
  useEffect(() => {
    let interval = null;
    if (navStarted) {
      interval = setInterval(() => {
-       // Просто держим JS активным каждые 30 секунд
        const _ = Date.now();
      }, 30000);
    }
@@ -199,7 +197,9 @@ export default function NavigatorApp() {
        .setLngLat([userPos.lon, userPos.lat]).addTo(map);
      map.flyTo({ center: [userPos.lon, userPos.lat], zoom: 15, duration: 800 });
    } else {
-     userMarkerRef.current.setLngLat([userPos.lon, userPos.lat]);
+     if (!navStarted) {
+       userMarkerRef.current.setLngLat([userPos.lon, userPos.lat]);
+     }
    }
    if (following && navStarted && route) {
      let bearing = userPos.heading;
@@ -223,18 +223,36 @@ export default function NavigatorApp() {
    }
  }, [userPos, mapReady, following, route, navStarted]);
 
+ // Snap to road + обрезка линии
  useEffect(() => {
    if (!userPos || !routeGeomRef.current || !navStarted) return;
    const coords = routeGeomRef.current;
    let closestIdx = 0;
    let minDist = Infinity;
-   for (let i = 0; i < coords.length; i++) {
-     const d = Math.hypot(coords[i][0] - userPos.lon, coords[i][1] - userPos.lat);
+   for (let i = 0; i < coords.length - 1; i++) {
+     const d = pointToSegMeters(
+       userPos.lat, userPos.lon,
+       coords[i][1], coords[i][0],
+       coords[i+1][1], coords[i+1][0]
+     );
      if (d < minDist) { minDist = d; closestIdx = i; }
    }
-   const aheadIdx = Math.min(closestIdx + 3, coords.length - 1);
+   const aheadIdx = Math.min(closestIdx + 2, coords.length - 1);
    setRouteCoords(coords.slice(aheadIdx));
- }, [userPos, navStarted]);
+
+   // Snap синей точки к дороге если близко
+   if (userMarkerRef.current && minDist < 50) {
+     const snapped = coords[closestIdx];
+     userMarkerRef.current.setLngLat([snapped[0], snapped[1]]);
+     if (following && mapRef.current) {
+       mapRef.current.easeTo({
+         center: [snapped[0], snapped[1]], zoom: 17.5,
+         pitch: 0, duration: 700,
+         padding: { top: 280, bottom: 0, left: 0, right: 0 },
+       });
+     }
+   }
+ }, [userPos, navStarted, following]);
 
  const drawRoute = useCallback((geo) => {
    routeGeomRef.current = geo.coordinates;
@@ -288,14 +306,11 @@ export default function NavigatorApp() {
      const custom = getCustomRoute(dest.label);
      if (custom) {
        const fakeRoute = {
-         distance: 0,
-         duration: 0,
+         distance: 0, duration: 0,
          geometry: { type: 'LineString', coordinates: custom.track },
          steps: [{ distance: 0, duration: 0, name: '', instruction: 'Следуйте по сохранённому маршруту', type: 'depart', modifier: '', location: custom.track[0] }],
        };
-       setRoute(fakeRoute);
-       setCurrentStep(0);
-       setNavStarted(false);
+       setRoute(fakeRoute); setCurrentStep(0); setNavStarted(false);
        lastSpokenStepRef.current = -1;
        drawRoute(fakeRoute.geometry);
        const coords = fakeRoute.geometry.coordinates;
@@ -308,9 +323,7 @@ export default function NavigatorApp() {
 
    try {
      const r = await getRoute(userPos.lat, userPos.lon, dest.lat, dest.lon, profile);
-     setRoute(r);
-     setCurrentStep(0);
-     setNavStarted(false);
+     setRoute(r); setCurrentStep(0); setNavStarted(false);
      lastSpokenStepRef.current = -1;
      drawRoute(r.geometry);
      const coords = r.geometry.coordinates;
@@ -466,6 +479,7 @@ export default function NavigatorApp() {
          currentStep={currentStep}
          destination={destination}
          onCancel={clearRoute}
+         onFinish={clearRoute}
          navStarted={navStarted}
          onStart={startNavigation}
          rerouting={rerouting}
