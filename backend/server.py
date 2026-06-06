@@ -59,11 +59,6 @@ class SavedSearch(BaseModel):
   timestamp: datetime = Field(default_factory=datetime.utcnow)
 
 
-@api_router.head('/')
-async def root_head():
-  return None
-
-
 @api_router.get('/')
 async def root():
   return {'message': 'Navigator MD API', 'status': 'ok'}
@@ -157,8 +152,6 @@ async def get_route(req: RouteRequest):
       data = r.json()
       if data.get('code') != 'Ok' or not data.get('routes'):
           raise HTTPException(status_code=404, detail='No route found')
-      
-      # CORECTAT AICI (S-a adăugat indexul [0]):
       route = data['routes'][0]
       legs = route.get('legs', [])
       steps = []
@@ -256,8 +249,4 @@ app.include_router(api_router)
 
 app.add_middleware(
   CORSMiddleware,
-  allow_origins=["*"],
   allow_credentials=True,
-  allow_methods=["*"],
-  allow_headers=["*"],
-)
