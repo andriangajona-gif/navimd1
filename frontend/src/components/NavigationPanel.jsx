@@ -14,7 +14,7 @@ function maneuverIcon(step) {
   return <ArrowUp />;
 }
 
-export default function NavigationPanel({ route, currentStep, destination, onCancel, navStarted, onStart, rerouting }) {
+export default function NavigationPanel({ route, currentStep, destination, onCancel, onFinish, navStarted, onStart, rerouting }) {
   const step = route.steps?.[currentStep] || route.steps?.[0];
   const remainingSteps = route.steps?.slice(currentStep) || [];
   const remainingDist = remainingSteps.reduce((a, s) => a + (s.distance || 0), 0);
@@ -22,7 +22,6 @@ export default function NavigationPanel({ route, currentStep, destination, onCan
 
   return (
     <>
-      {/* Top instruction (active nav) */}
       {navStarted && (
         <div className="absolute top-2 left-2 right-2 z-30">
           <div className="bg-stone-900 text-white rounded-2xl shadow-lg px-3 py-2.5 flex items-center gap-2.5">
@@ -50,7 +49,6 @@ export default function NavigationPanel({ route, currentStep, destination, onCan
         </div>
       )}
 
-      {/* Bottom panel: preview (Старт) OR active summary */}
       <div className="absolute bottom-0 left-0 right-0 z-30 bg-white rounded-t-2xl shadow-[0_-4px_20px_rgba(0,0,0,0.08)] px-3 pt-3 pb-[max(env(safe-area-inset-bottom),12px)]">
         {!navStarted ? (
           <>
@@ -92,7 +90,7 @@ export default function NavigationPanel({ route, currentStep, destination, onCan
               )}
             </div>
             <button
-              onClick={onCancel}
+              onClick={onFinish}
               className="px-3.5 py-2.5 rounded-xl bg-red-500 text-white text-[13px] font-semibold active:scale-95 transition-transform shrink-0"
             >Завершить</button>
           </div>
