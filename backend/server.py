@@ -59,7 +59,6 @@ class SavedSearch(BaseModel):
   timestamp: datetime = Field(default_factory=datetime.utcnow)
 
 
-# --- RUTA MUTATĂ PE API_ROUTER PENTRU UPTIMEROBOT ---
 @api_router.head('/')
 async def root_head():
   return None
@@ -158,7 +157,9 @@ async def get_route(req: RouteRequest):
       data = r.json()
       if data.get('code') != 'Ok' or not data.get('routes'):
           raise HTTPException(status_code=404, detail='No route found')
-      route = data['routes']
+      
+      # CORECTAT AICI (S-a adăugat indexul [0]):
+      route = data['routes'][0]
       legs = route.get('legs', [])
       steps = []
       for leg in legs:
