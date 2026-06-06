@@ -18,8 +18,8 @@ load_dotenv(ROOT_DIR / '.env')
 MONGO_URL = os.environ.get('MONGO_URL')
 DB_NAME = os.environ.get('DB_NAME', 'test_database')
 MAPMD_API_KEY = os.environ.get('MAPMD_API_KEY', '040c1d37-142e-4f81-adfb-c6f7a7dce753')
-MAPMD_BASE = 'https://map.md'
-OSRM_BASE = 'https://project-osrm.org'
+MAPMD_BASE = 'https://map.md/api/companies/webmap'
+OSRM_BASE = 'https://router.project-osrm.org'
 
 client = AsyncIOMotorClient(MONGO_URL) if MONGO_URL else None
 db = client[DB_NAME] if client else None
@@ -57,12 +57,6 @@ class SavedSearch(BaseModel):
   id: str = Field(default_factory=lambda: str(uuid.uuid4()))
   query: str
   timestamp: datetime = Field(default_factory=datetime.utcnow)
-
-
-# --- RUTA MUTATĂ PE API_ROUTER PENTRU UPTIMEROBOT ---
-@api_router.head('/')
-async def root_head():
-  return None
 
 
 @api_router.get('/')
@@ -121,7 +115,7 @@ async def geocode(
 ):
   """Get precise coordinates using Nominatim OSM geocoder."""
   try:
-      url = 'https://openstreetmap.org'
+      url = 'https://nominatim.openstreetmap.org/search'
       query = f'{building} {street}, {city}, Moldova'
       params = {
           'q': query,
@@ -158,7 +152,7 @@ async def get_route(req: RouteRequest):
       data = r.json()
       if data.get('code') != 'Ok' or not data.get('routes'):
           raise HTTPException(status_code=404, detail='No route found')
-      route = data['routes']
+      route = data['routes'][0]
       legs = route.get('legs', [])
       steps = []
       for leg in legs:
@@ -233,7 +227,7 @@ async def map_style():
       'sources': {
           'osm': {
               'type': 'raster',
-              'tiles': ['https://openstreetmap.org{z}/{x}/{y}.png'],
+              'tiles': ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
               'tileSize': 256,
               'attribution': '© OpenStreetMap contributors',
           }
@@ -255,8 +249,8 @@ app.include_router(api_router)
 
 app.add_middleware(
   CORSMiddleware,
-  allow_origins=["*"],
   allow_credentials=True,
-  allow_methods=["*"],
-  allow_headers=["*"],
+  allow_origins=['*'],
+  allow_methods=['*'],
+  allow_headers=['*'],
 )
