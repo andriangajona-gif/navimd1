@@ -59,6 +59,12 @@ class SavedSearch(BaseModel):
   timestamp: datetime = Field(default_factory=datetime.utcnow)
 
 
+# --- RUTA ADAUGATĂ PENTRU UPTIMEROBOT ---
+@app.head("/")
+async def root_head():
+  return None
+
+
 @api_router.get('/')
 async def root():
   return {'message': 'Navigator MD API', 'status': 'ok'}
@@ -213,7 +219,7 @@ def build_instruction(step: Dict[str, Any]) -> str:
       return f'В конце дороги поверните {d}'
   if t == 'roundabout' or t == 'rotary':
       exit_n = m.get('exit', 1)
-      return f'На круговом движении {exit_n}-й съезд на {name}' if name else f'На кругу {exit_n}-й съезд'
+      return f'На круговом движении {exit_n}-й съезд на {name}' if name else f'На круgu {exit_n}-й съезд'
   if t == 'continue':
       return f'Продолжайте {d} по {name}' if name else f'Продолжайте {d}'
   return f'Двигайтесь по {name}' if name else 'Продолжайте движение'
@@ -249,8 +255,8 @@ app.include_router(api_router)
 
 app.add_middleware(
   CORSMiddleware,
+  allow_origins=["*"],
   allow_credentials=True,
-  allow_origins=['*'],
-  allow_methods=['*'],
-  allow_headers=['*'],
+  allow_methods=["*"],
+  allow_headers=["*"],
 )
