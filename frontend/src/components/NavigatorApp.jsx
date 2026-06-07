@@ -3,7 +3,7 @@ import maplibregl from 'maplibre-gl';
 import { STYLE_URL, getRoute, speak, formatDistance, formatDuration, haversine, recordTrip, scoreRoute, getPreferredRoute } from '../lib/api';
 import SearchPanel from './SearchPanel';
 import NavigationPanel from './NavigationPanel';
-import { Locate, Volume2, VolumeX, X, Compass } from 'lucide-react';
+import { Locate, Volume2, VolumeX } from 'lucide-react';
 
 function calcBearing(lat1, lon1, lat2, lon2) {
   const toRad = (d) => d * Math.PI / 180;
@@ -186,7 +186,6 @@ export default function NavigatorApp() {
   const routeGeomRef = useRef(null);
   const gpsTrackRef = useRef([]);
   const wakeLockManagerRef = useRef(new WakeLockManager());
-  const mapUpdateIntervalRef = useRef(null);
 
   const [mapReady, setMapReady] = useState(false);
   const [mapInstance, setMapInstance] = useState(null);
@@ -533,20 +532,6 @@ export default function NavigatorApp() {
     }
   };
 
-  const requestCompassPermission = async () => {
-    if (typeof DeviceOrientationEvent.requestPermission === 'function') {
-      try {
-        const perm = await DeviceOrientationEvent.requestPermission();
-        if (perm === 'granted') {
-          window.addEventListener('deviceorientation', (e) => {
-            const deg = e.webkitCompassHeading ?? e.alpha;
-            if (deg != null) setCompass(deg);
-          }, true);
-        }
-      } catch (e) {}
-    }
-  };
-
   return (
     <div className="App" style={{ position: 'relative' }}>
       <div ref={mapContainerRef} className="absolute inset-0" />
@@ -576,28 +561,7 @@ export default function NavigatorApp() {
         >
           <Locate size={20} />
         </button>
-        {/* Компас */}
-        <button
-          onClick={requestCompassPermission}
-          className="w-11 h-11 rounded-full bg-white shadow-md flex items-center justify-center active:scale-95 transition-transform"
-          style={{ color: compass != null ? '#2c7be5' : '#78716c' }}
-        >
-          <Compass
-            size={22}
-            style={{
-              transform: compass != null ? `rotate(${-compass}deg)` : 'none',
-              transition: 'transform 0.3s ease',
-            }}
-          />
-        </button>
       </div>
-
-      {error && (
-        <div className="absolute top-20 left-3 right-3 z-40 bg-red-50 border border-red-200 text-red-800 text-sm rounded-lg px-3 py-2 shadow flex items-start gap-2">
-          <span className="flex-1">{error}</span>
-          <button onClick={() => setError(null)} className="text-red-600"><X size={16} /></button>
-        </div>
-      )}
 
       {/* Диалог сохранения маршрута */}
       {showSavePrompt && (
