@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Search, X, MapPin, Building2, ChevronRight, ArrowLeft, Star } from 'lucide-react';
+import { Search, X, MapPin, Building2, ChevronRight, ArrowLeft, Star, Clock } from 'lucide-react';
 import { searchStreets, geocodeBuilding } from '../lib/api';
 
-export default function SearchPanel({ onSelectDestination, getCustomRoute }) {
+export default function SearchPanel({ onSelectDestination, getCustomRoute, getPreferredRoute }) {
   const [q, setQ] = useState('');
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -10,6 +10,8 @@ export default function SearchPanel({ onSelectDestination, getCustomRoute }) {
   const [selectedStreet, setSelectedStreet] = useState(null);
   const [error, setError] = useState(null);
   const [pendingDest, setPendingDest] = useState(null);
+  const [pendingHasCustom, setPendingHasCustom] = useState(false);
+  const [pendingHasPreferred, setPendingHasPreferred] = useState(false);
   const debounceRef = useRef(null);
 
   useEffect(() => {
@@ -29,9 +31,7 @@ export default function SearchPanel({ onSelectDestination, getCustomRoute }) {
     return () => debounceRef.current && clearTimeout(debounceRef.current);
   }, [q, selectedStreet]);
 
-  const handleStreetClick = (street) => {
-    setSelectedStreet(street);
-  };
+  const handleStreetClick = (street) => setSelectedStreet(street);
 
   const handleBuildingClick = async (b) => {
     if (!selectedStreet) return;
@@ -50,10 +50,13 @@ export default function SearchPanel({ onSelectDestination, getCustomRoute }) {
       city: selectedStreet.parent_name,
     };
 
-    // Проверяем есть ли сохранённый маршрут
-    const custom = getCustomRoute ? getCustomRoute(dest.label) : null;
-    if (custom) {
+    const hasCustom = !!(getCustomRoute && getCustomRoute(dest.label));
+    const hasPreferred = !!(getPreferredRoute && getPreferredRoute(dest.label));
+
+    if (hasCustom || hasPreferred) {
       setPendingDest(dest);
+      setPendingHasCustom(hasCustom);
+      setPendingHasPreferred(hasPreferred);
       setOpen(false);
     } else {
       onSelectDestination(dest, false);
@@ -75,32 +78,35 @@ export default function SearchPanel({ onSelectDestination, getCustomRoute }) {
     }
   };
 
-  const reset = () => { setQ(''); setResults([]); setSelectedStreet(null); setError(null); setPendingDest(null); };
+  const reset = () => {
+    setQ(''); setResults([]); setSelectedStreet(null);
+    setError(null); setPendingDest(null);
+  };
 
-  // Диалог выбора маршрута
   if (pendingDest) {
     return (
       <div className="absolute inset-0 z-50 bg-black/50 flex items-end">
         <div className="bg-white rounded-t-2xl p-5 w-full shadow-xl">
           <div className="text-[17px] font-bold text-stone-900 mb-1">Выберите маршрут</div>
-          <div className="text-[13px] text-stone-500 mb-4">{pendingDest.label}</div>
-          <button
-            onClick={handleChooseCustom}
-            className="w-full mb-3 py-3.5 rounded-xl bg-amber-500 text-white text-[15px] font-semibold flex items-center justify-center gap-2"
-          >
-            <Star size={18} fill="currentColor" />
-            Мой маршрут
-          </button>
+          <div className="text-[13px] text-stone-500 mb-4 truncate">{pendingDest.label}</div>
+
+          {(pendingHasCustom || pendingHasPreferred) && (
+            <button
+              onClick={handleChooseCustom}
+              className="w-full mb-3 py-3.5 rounded-xl bg-amber-500 text-white text-[15px] font-semibold flex items-center justify-center gap-2"
+            >
+              {pendingHasCustom ? <Star size={18} fill="currentColor" /> : <Clock size={18} />}
+              {pendingHasCustom ? 'Мой сохранённый маршрут' : 'Мой привычный маршрут'}
+            </button>
+          )}
+
           <button
             onClick={handleChooseStandard}
             className="w-full py-3.5 rounded-xl border border-stone-200 text-stone-700 text-[15px] font-medium"
           >
             Стандартный маршрут
           </button>
-          <button
-            onClick={reset}
-            className="w-full mt-2 py-2 text-stone-400 text-[14px]"
-          >
+          <button onClick={reset} className="w-full mt-2 py-2 text-stone-400 text-[14px]">
             Отмена
           </button>
         </div>
