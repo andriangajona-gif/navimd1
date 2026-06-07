@@ -22,6 +22,82 @@ export async function geocodeBuilding(street, building, city = 'Florești') {
   return data;
 }
 
+// ===== Система учёта дорог =====
+
+const ROAD_STATS_KEY = 'road_stats';
+const TRIP_HISTORY_KEY = 'trip_history';
+
+// Сохраняем статистику использования дорог
+export function recordTrip(track, destLabel) {
+  try {
+    // Записываем поездку в историю
+    const history = JSON.parse(localStorage.getItem(TRIP_HISTORY_KEY) || '[]');
+    history.push({
+      track,
+      dest: destLabel,
+      timestamp: Date.now(),
+    });
+    // Храним только последние 50 поездок
+    if (history.length > 50) history.splice(0, history.length - 50);
+    localStorage.setItem(TRIP_HISTORY_KEY, JSON.stringify(history));
+
+    // Обновляем статистику сегментов дорог
+    const stats = JSON.parse(localStorage.getItem(ROAD_STATS_KEY) || '{}');
+    for (let i = 0; i < track.length - 1; i++) {
+      const key = segmentKey(track[i], track[i + 1]);
+      stats[key] = (stats[key] || 0) + 1;
+    }
+    localStorage.setItem(ROAD_STATS_KEY, JSON.stringify(stats));
+  } catch (e) {}
+}
+
+// Ключ для сегмента дороги (округляем до 4 знаков ~11м точность)
+function segmentKey(p1, p2) {
+  const r = (n) => Math.round(n * 1000) / 1000;
+  return `${r(p1[1])},${r(p1[0])}-${r(p2[1])},${r(p2[0])}`;
+}
+
+// Считаем насколько маршрут совпадает с любимыми дорогами
+export function scoreRoute(coords) {
+  try {
+    const stats = JSON.parse(localStorage.getItem(ROAD_STATS_KEY) || '{}');
+    if (Object.keys(stats).length === 0) return 0;
+    let score = 0;
+    for (let i = 0; i < coords.length - 1; i++) {
+      const key = segmentKey(coords[i], coords[i + 1]);
+      score += stats[key] || 0;
+    }
+    return score;
+  } catch (e) { return 0; }
+}
+
+// Получаем топ улиц по использованию
+export function getTopRoads() {
+  try {
+    const history = JSON.parse(localStorage.getItem(TRIP_HISTORY_KEY) || '[]');
+    const destCount = {};
+    history.forEach(trip => {
+      destCount[trip.dest] = (destCount[trip.dest] || 0) + 1;
+    });
+    return Object.entries(destCount)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 5)
+      .map(([dest, count]) => ({ dest, count }));
+  } catch (e) { return []; }
+}
+
+// Получаем альтернативный маршрут на основе истории поездок
+export function getPreferredRoute(destLabel) {
+  try {
+    const history = JSON.parse(localStorage.getItem(TRIP_HISTORY_KEY) || '[]');
+    const trips = history.filter(t => t.dest === destLabel);
+    if (trips.length < 2) return null;
+    // Берём самый свежий маршрут к этому адресу
+    trips.sort((a, b) => b.timestamp - a.timestamp);
+    return trips[0].track;
+  } catch (e) { return null; }
+}
+
 export const STYLE_URL = {
   version: 8,
   glyphs: 'https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf',
