@@ -40,7 +40,9 @@ export default function SearchPanel({ onSelectDestination, getCustomRoute, getPr
     try {
       const geo = await geocodeBuilding(selectedStreet.name, b, selectedStreet.parent_name);
       if (geo.lat && geo.lon) { lat = geo.lat; lon = geo.lon; }
-    } catch (e) {}
+    } catch (e) {
+      console.warn('Geocoding error for building', b, ':', e.message);
+    }
 
     const dest = {
       lat, lon,
