@@ -57,6 +57,90 @@ function saveCustomRoute(destLabel, track) {
   } catch (e) {}
 }
 
+// Wake Lock Manager для предотвращения сна экрана
+class WakeLockManager {
+  constructor() {
+    this.wakeLock = null;
+    this.noSleepVideo = null;
+    this.intervalId = null;
+  }
+
+  async acquire() {
+    try {
+      // Попытка использовать Wake Lock API (самый надёжный способ)
+      if ('wakeLock' in navigator) {
+        this.wakeLock = await navigator.wakeLock.request('screen');
+        console.log('✅ Wake Lock API активирован');
+        return true;
+      }
+    } catch (e) {
+      console.warn('⚠️ Wake Lock API недоступен:', e.message);
+    }
+
+    // Резервный вариант: видео в цикле
+    try {
+      this.setupNoSleepVideo();
+      return true;
+    } catch (e) {
+      console.warn('⚠️ Видео трюк не сработал:', e.message);
+    }
+
+    return false;
+  }
+
+  setupNoSleepVideo() {
+    const video = document.createElement('video');
+    video.setAttribute('loop', '');
+    video.setAttribute('playsinline', '');
+    video.setAttribute('muted', '');
+    video.style.cssText = 'position:fixed;top:-1px;left:-1px;width:1px;height:1px;opacity:0.01;pointer-events:none;';
+    
+    // Минимальный MP4 видео (бесконечный цикл)
+    video.src = 'data:video/mp4;base64,AAAAIGZ0eXBpc29tAAACAGlzb21pc28yYXZjMW1wNDEAAAAIZnJlZQAACKkbf7VkAQAMbQEAG+D//v/U/DwAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAIAZYiEAD/2Q==';
+    
+    document.body.appendChild(video);
+    
+    video.play().catch(() => {
+      console.warn('⚠️ Не удалось воспроизвести видео для предотвращения сна');
+    });
+
+    this.noSleepVideo = video;
+
+    // Переиграть каждые 10 секунд для гарантии
+    this.intervalId = setInterval(() => {
+      if (this.noSleepVideo && this.noSleepVideo.paused) {
+        this.noSleepVideo.play().catch(() => {});
+      }
+    }, 10000);
+  }
+
+  async release() {
+    // Освобождение Wake Lock
+    if (this.wakeLock) {
+      try {
+        await this.wakeLock.release();
+        this.wakeLock = null;
+        console.log('✅ Wake Lock освобожден');
+      } catch (e) {
+        console.warn('⚠️ Ошибка при освобождении Wake Lock:', e);
+      }
+    }
+
+    // Остановка видео
+    if (this.noSleepVideo) {
+      this.noSleepVideo.pause();
+      this.noSleepVideo.remove();
+      this.noSleepVideo = null;
+    }
+
+    // Очистка интервала
+    if (this.intervalId) {
+      clearInterval(this.intervalId);
+      this.intervalId = null;
+    }
+  }
+}
+
 function RouteOverlay({ routeCoords, map }) {
   const [points, setPoints] = useState([]);
 
@@ -101,7 +185,7 @@ export default function NavigatorApp() {
   const watchIdRef = useRef(null);
   const routeGeomRef = useRef(null);
   const gpsTrackRef = useRef([]);
-  const noSleepRef = useRef(null);
+  const wakeLockManagerRef = useRef(new WakeLockManager());
 
   const [mapReady, setMapReady] = useState(false);
   const [mapInstance, setMapInstance] = useState(null);
@@ -180,35 +264,43 @@ export default function NavigatorApp() {
     return () => { if (watchIdRef.current) navigator.geolocation.clearWatch(watchIdRef.current); };
   }, [navStarted]);
 
-  // Не давать экрану гаснуть — видео-трюк без Wake Lock API
+  // Wake Lock для предотвращения сна экрана во время навигации
   useEffect(() => {
+    const wakeLockManager = wakeLockManagerRef.current;
+
     if (navStarted) {
-      // Создаём невидимое видео для предотвращения сна экрана
-      try {
-        const video = document.createElement('video');
-        video.setAttribute('loop', '');
-        video.setAttribute('playsinline', '');
-        video.setAttribute('muted', '');
-        video.style.cssText = 'position:fixed;top:-1px;left:-1px;width:1px;height:1px;opacity:0.01;';
-        video.src = 'data:video/mp4;base64,AAAAIGZ0eXBpc29tAAACAGlzb21pc28yYXZjMW1wNDEAAAAIZnJlZQAAAs1tZGF0AAACrgYF//+q3EXpvebZSLeWLNgg2SPu73gyNjQgLSBjb3JlIDE0MiByMjQ3OSBkZDc5YTYxIC0gSC4yNjQvTVBFRy00IEFWQ2NvZGVjIC0gQ29weWxlZnQgMjAwMy0yMDE0IC0gaHR0cDovL3d3dy52aWRlb2xhbi5vcmcveDI2NC5odG1sIC0gb3B0aW9uczogY2FiYWM9MSByZWY9MyBkZWJsb2NrPTE6MDowIGFuYWx5c2U9MHgzOjB4MTEzIG1lPWhleCBzdWJtZT03IHBzeT0xIHBzeV9yZD0xLjAwOjAuMDAgbWl4ZWRfcmVmPTEgbWVfcmFuZ2U9MTYgY2hyb21hX21lPTEgdHJlbGxpcz0xIDh4OGRjdD0xIGNxbT0wIGRlYWR6b25lPTIxLDExIGZhc3RfcHNraXA9MSBjaHJvbWFfcXBfb2Zmc2V0PS0yIHRocmVhZHM9NjAgbG9va2FoZWFkX3RocmVhZHM9MTAgc2xpY2VkX3RocmVhZHM9MCBucj0wIGRlY2ltYXRlPTEgaW50ZXJsYWNlZD0wIGJsdXJheV9jb21wYXQ9MCBjb25zdHJhaW5lZF9pbnRyYT0wIGJmcmFtZXM9MyBiX3B5cmFtaWQ9MiBiX2FkYXB0PTEgYl9iaWFzPTAgZGlyZWN0PTEgd2VpZ2h0Yj0xIG9wZW5fZ29wPTAgd2VpZ2h0cD0yIGtleWludD0yNTAga2V5aW50X21pbj0yNSBzY2VuZWN1dD00MCBpbnRyYV9yZWZyZXNoPTAgcmNfbG9va2FoZWFkPTQwIHJjPWNyZiBtYnRyZWU9MSBjcmY9MjMuMCBxY29tcD0wLjYwIHFwbWluPTAgcXBtYXg9NjkgcXBzdGVwPTQgaXBfcmF0aW89MS40MCBhcT0xOjEuMDAAgAAAAFZliIQL8mKAAKvMnJycnJycnJycnJycnJycnJycnJycnJycnJycnJycnJycnJycnJycnJycnJycnJycnJycnJycnJycnJycnJycnJycnJycnJycnJycnJycnJycnJycnAAAABBliWIQN+mKAAGQAIAAAAwAAAwAAFgn0e';
-        document.body.appendChild(video);
-        video.play().catch(() => {});
-        noSleepRef.current = video;
-      } catch (e) {}
+      wakeLockManager.acquire().then((success) => {
+        if (!success) {
+          console.warn('⚠️ Wake Lock не активирован. Экран может выключиться.');
+        }
+      });
     } else {
-      if (noSleepRef.current) {
-        noSleepRef.current.pause();
-        noSleepRef.current.remove();
-        noSleepRef.current = null;
-      }
+      wakeLockManager.release();
     }
+
     return () => {
-      if (noSleepRef.current) {
-        noSleepRef.current.pause();
-        noSleepRef.current.remove();
-        noSleepRef.current = null;
+      if (!navStarted) {
+        wakeLockManager.release();
       }
     };
+  }, [navStarted]);
+
+  // Слушатель для восстановления Wake Lock если браузер его освободит
+  useEffect(() => {
+    if (!navStarted) return;
+
+    const handleVisibilityChange = async () => {
+      const wakeLockManager = wakeLockManagerRef.current;
+      if (document.visibilityState === 'visible' && navStarted) {
+        const success = await wakeLockManager.acquire();
+        if (success) {
+          console.log('✅ Wake Lock восстановлен');
+        }
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
   }, [navStarted]);
 
   // Обновление маркера пользователя
@@ -232,7 +324,7 @@ export default function NavigatorApp() {
       map.easeTo({
         center: [userPos.lon, userPos.lat], zoom: 17.5,
         bearing: isNaN(bearing) ? 0 : bearing,
-        pitch: 0, duration: 700,
+        pitch: 55, duration: 700,
         padding: { top: 280, bottom: 0, left: 0, right: 0 },
       });
     } else if (following && route) {
@@ -320,7 +412,7 @@ export default function NavigatorApp() {
         const fakeRoute = {
           distance: 0, duration: 0,
           geometry: { type: 'LineString', coordinates: track },
-          steps: [{ distance: 0, duration: 0, name: '', instruction: 'Следуйте по вашему привычному маршруту', type: 'depart', modifier: '', location: track[0] }],
+          steps: [{ distance: 0, duration: 0, name: '', instruction: 'Следуйте по вашему привычному маршруту', type: 'depart', modifier: '', location: track[0] }]
         };
         setRoute(fakeRoute); setCurrentStep(0); setNavStarted(false);
         lastSpokenStepRef.current = -1;
@@ -357,7 +449,7 @@ export default function NavigatorApp() {
       map.easeTo({
         center: [userPos.lon, userPos.lat], zoom: 17.5,
         bearing: compass ?? userPos.heading ?? 0,
-        pitch: 0, duration: 900,
+        pitch: 55, duration: 900,
         padding: { top: 280, bottom: 0, left: 0, right: 0 },
       });
     }
@@ -501,7 +593,7 @@ export default function NavigatorApp() {
               {lastSpokenStepRef.current === 9999 ? '🎉 Вы прибыли!' : 'Завершить маршрут?'}
             </div>
             <div className="text-[14px] text-stone-500 mb-5">
-              Сохранить ваш путь к <span className="font-medium text-stone-700">{arrivedDest?.label}</span>? Система запомнит его и будет предлагать в следующий раз.
+              Сохранить ваш путь к <span className="font-medium text-stone-700">{arrivedDest?.label}</span>? Система запомнит его и будет предлагать в будущем.
             </div>
             <div className="flex gap-3">
               <button onClick={handleSkipSave} className="flex-1 py-3 rounded-xl border border-stone-200 text-stone-600 text-[15px] font-medium">
