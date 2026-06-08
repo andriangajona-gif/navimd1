@@ -1,9 +1,9 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import maplibregl from 'maplibre-gl';
-import { STYLE_URL, getRoute, speak, formatDistance, formatDuration, haversine, recordTrip, scoreRoute, getPreferredRoute } from '../lib/api';
+import { STYLE_URL, getRoute, formatDistance, formatDuration, haversine, recordTrip, scoreRoute, getPreferredRoute } from '../lib/api';
 import SearchPanel from './SearchPanel';
 import NavigationPanel from './NavigationPanel';
-import { Locate, Volume2, VolumeX } from 'lucide-react';
+import { Locate } from 'lucide-react';
 
 function calcBearing(lat1, lon1, lat2, lon2) {
   const toRad = (d) => d * Math.PI / 180;
@@ -66,18 +66,13 @@ class WakeLockManager {
   async acquire() {
     try {
       if ('wakeLock' in navigator) {
-        // Если лок уже удерживается, повторно запрашивать не нужно
         if (this.wakeLock) return true;
-        
         this.wakeLock = await navigator.wakeLock.request('screen');
         console.log('✅ Нативный Wake Lock API успешно активирован');
-        
-        // Слушаем событие самопроизвольного сброса блокировки системой
         this.wakeLock.addEventListener('release', () => {
           this.wakeLock = null;
           console.log('🔒 Блокировка экрана была временно сброшена системой');
         });
-        
         return true;
       }
     } catch (e) {
@@ -153,7 +148,6 @@ export default function NavigatorApp() {
   const [route, setRoute] = useState(null);
   const [routeCoords, setRouteCoords] = useState(null);
   const [currentStep, setCurrentStep] = useState(0);
-  const [voiceOn, setVoiceOn] = useState(true);
   const [profile] = useState('driving');
   const [error, setError] = useState(null);
   const [following, setFollowing] = useState(true);
@@ -161,7 +155,6 @@ export default function NavigatorApp() {
   const [rerouting, setRerouting] = useState(false);
   const [showSavePrompt, setShowSavePrompt] = useState(false);
   const [arrivedDest, setArrivedDest] = useState(null);
-  const lastSpokenStepRef = useRef(-1);
   const lastReroutedAtRef = useRef(0);
   const offRouteSinceRef = useRef(null);
 
@@ -194,9 +187,7 @@ export default function NavigatorApp() {
       if (deg != null) setCompass(deg);
     };
     if (window.DeviceOrientationEvent) {
-      if (typeof DeviceOrientationEvent.requestPermission === 'function') {
-        // Запрос девайса на iOS будет обрабатываться по кнопке/клику
-      } else {
+      if (typeof DeviceOrientationEvent.requestPermission !== 'function') {
         window.addEventListener('deviceorientation', handler, true);
       }
     }
@@ -225,16 +216,12 @@ export default function NavigatorApp() {
   // Управление Wake Lock (включение/выключение)
   useEffect(() => {
     const wakeLockManager = wakeLockManagerRef.current;
-
     if (navStarted) {
       wakeLockManager.acquire();
     } else {
       wakeLockManager.release();
     }
-
-    return () => {
-      wakeLockManager.release();
-    };
+    return () => { wakeLockManager.release(); };
   }, [navStarted]);
 
   // Восстановление Wake Lock, когда пользователь возвращается на вкладку
@@ -245,7 +232,6 @@ export default function NavigatorApp() {
         wakeLockManager.acquire();
       }
     };
-
     document.addEventListener('visibilitychange', handleVisibilityChange);
     return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
   }, [navStarted]);
@@ -317,7 +303,7 @@ export default function NavigatorApp() {
     routeGeomRef.current = null;
     gpsTrackRef.current = [];
     setRoute(null); setRouteCoords(null); setDestination(null);
-    setCurrentStep(0); setNavStarted(false); lastSpokenStepRef.current = -1;
+    setCurrentStep(0); setNavStarted(false);
     offRouteSinceRef.current = null;
     setShowSavePrompt(false);
     setArrivedDest(null);
@@ -370,7 +356,6 @@ export default function NavigatorApp() {
           steps: [{ distance: 0, duration: 0, name: '', instruction: 'Следуйте по вашему привычному маршруту', type: 'depart', modifier: '', location: track[0] }]
         };
         setRoute(fakeRoute); setCurrentStep(0); setNavStarted(false);
-        lastSpokenStepRef.current = -1;
         drawRoute(fakeRoute.geometry);
         const bounds = track.reduce((b, c) => b.extend(c), new maplibregl.LngLatBounds(track[0], track[0]));
         map.fitBounds(bounds, { padding: { top: 120, bottom: 240, left: 40, right: 40 }, duration: 800 });
@@ -382,7 +367,6 @@ export default function NavigatorApp() {
     try {
       const r = await getRoute(userPos.lat, userPos.lon, dest.lat, dest.lon, profile);
       setRoute(r); setCurrentStep(0); setNavStarted(false);
-      lastSpokenStepRef.current = -1;
       drawRoute(r.geometry);
       const coords = r.geometry.coordinates;
       const bounds = coords.reduce((b, c) => b.extend(c), new maplibregl.LngLatBounds(coords[0], coords[0]));
@@ -410,11 +394,7 @@ export default function NavigatorApp() {
         padding: { top: 100, bottom: 450, left: 0, right: 0 },
       });
     }
-    if (voiceOn && route.steps?.length) {
-      speak(`Маршрут построен. ${formatDistance(route.distance)}, примерно ${formatDuration(route.duration)}. ${route.steps[0].instruction}.`);
-      lastSpokenStepRef.current = 0;
-    }
-  }, [route, userPos, voiceOn, compass]);
+  }, [route, userPos, compass]);
 
   // Навигационная логика
   useEffect(() => {
@@ -429,10 +409,6 @@ export default function NavigatorApp() {
     }
     if (nextIdx !== currentStep) {
       setCurrentStep(nextIdx);
-      if (voiceOn && lastSpokenStepRef.current !== nextIdx && steps[nextIdx]) {
-        speak(steps[nextIdx].instruction);
-        lastSpokenStepRef.current = nextIdx;
-      }
     }
     const coords = route.geometry?.coordinates || [];
     const distOff = distToRouteMeters(userPos.lat, userPos.lon, coords);
@@ -445,9 +421,8 @@ export default function NavigatorApp() {
         lastReroutedAtRef.current = now;
         offRouteSinceRef.current = null;
         setRerouting(true);
-        if (voiceOn) speak('Перестраиваю маршрут');
         getRoute(userPos.lat, userPos.lon, destination.lat, destination.lon, profile)
-          .then((r) => { setRoute(r); setCurrentStep(0); lastSpokenStepRef.current = -1; drawRoute(r.geometry); })
+          .then((r) => { setRoute(r); setCurrentStep(0); drawRoute(r.geometry); })
           .catch(() => {})
           .finally(() => setRerouting(false));
       }
@@ -457,16 +432,14 @@ export default function NavigatorApp() {
     
     if (destination) {
       const dArr = haversine(userPos.lat, userPos.lon, destination.lat, destination.lon);
-      if (dArr < 25 && lastSpokenStepRef.current !== 9999) {
-        lastSpokenStepRef.current = 9999;
-        if (voiceOn) speak('Вы прибыли в пункт назначения');
+      if (dArr < 25) {
         setTimeout(() => {
           setArrivedDest(destination);
           setShowSavePrompt(true);
         }, 2000);
       }
     }
-  }, [userPos, route, currentStep, voiceOn, destination, navStarted, profile, drawRoute, rerouting]);
+  }, [userPos, route, currentStep, destination, navStarted, profile, drawRoute, rerouting]);
 
   const recenter = () => {
     if (userPos && mapRef.current) {
@@ -493,12 +466,6 @@ export default function NavigatorApp() {
       {/* Кнопки управления */}
       <div className="absolute right-3 bottom-48 z-30 flex flex-col gap-2">
         <button
-          onClick={() => setVoiceOn(v => !v)}
-          className="w-11 h-11 rounded-full bg-white shadow-md flex items-center justify-center text-stone-700 active:scale-95 transition-transform"
-        >
-          {voiceOn ? <Volume2 size={20} /> : <VolumeX size={20} />}
-        </button>
-        <button
           onClick={recenter}
           className="w-11 h-11 rounded-full bg-white shadow-md flex items-center justify-center text-stone-700 active:scale-95 transition-transform"
         >
@@ -511,7 +478,7 @@ export default function NavigatorApp() {
         <div className="absolute inset-0 z-50 bg-black/50 flex items-center justify-center px-4">
           <div className="bg-white rounded-2xl p-5 shadow-xl w-full max-w-sm">
             <div className="text-[17px] font-bold text-stone-900 mb-2">
-              {lastSpokenStepRef.current === 9999 ? '🎉 Вы прибыли!' : 'Завершить маршрут?'}
+              🎉 Вы прибыли!
             </div>
             <div className="text-[14px] text-stone-500 mb-5">
               Сохранить ваш путь к <span className="font-medium text-stone-700">{arrivedDest?.label}</span>? Система запомнит его и будет предлагать в будущем.
