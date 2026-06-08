@@ -57,86 +57,44 @@ function saveCustomRoute(destLabel, track) {
   } catch (e) {}
 }
 
-// Wake Lock Manager для предотвращения сна экрана
+// Абсолютно чистый Wake Lock Manager БЕЗ видео-трюков
 class WakeLockManager {
   constructor() {
     this.wakeLock = null;
-    this.noSleepVideo = null;
-    this.intervalId = null;
   }
 
   async acquire() {
     try {
-      // Попытка использовать Wake Lock API (самый надёжный способ)
       if ('wakeLock' in navigator) {
+        // Если лок уже удерживается, повторно запрашивать не нужно
+        if (this.wakeLock) return true;
+        
         this.wakeLock = await navigator.wakeLock.request('screen');
-        console.log('✅ Wake Lock API активирован');
+        console.log('✅ Нативный Wake Lock API успешно активирован');
+        
+        // Слушаем событие самопроизвольного сброса блокировки системой
+        this.wakeLock.addEventListener('release', () => {
+          this.wakeLock = null;
+          console.log('🔒 Блокировка экрана была временно сброшена системой');
+        });
+        
         return true;
       }
     } catch (e) {
-      console.warn('⚠️ Wake Lock API недоступен:', e.message);
+      console.warn('⚠️ Нативный Wake Lock API отклонен или недоступен:', e.message);
     }
-
-    // Резервный вариант: видео в цикле
-    try {
-      this.setupNoSleepVideo();
-      return true;
-    } catch (e) {
-      console.warn('⚠️ Видео трюк не сработал:', e.message);
-    }
-
     return false;
   }
 
-  setupNoSleepVideo() {
-    const video = document.createElement('video');
-    video.setAttribute('loop', '');
-    video.setAttribute('playsinline', '');
-    video.setAttribute('muted', '');
-    video.style.cssText = 'position:fixed;top:-1px;left:-1px;width:1px;height:1px;opacity:0.01;pointer-events:none;';
-    
-    // Минимальный MP4 видео (бесконечный цикл)
-    video.src = 'data:video/mp4;base64,AAAAIGZ0eXBpc29tAAACAGlzb21pc28yYXZjMW1wNDEAAAAIZnJlZQAACKkbf7VkAQAMbQEAG+D//v/U/DwAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAIAZYiEAD/2Q==';
-    
-    document.body.appendChild(video);
-    
-    video.play().catch(() => {
-      console.warn('⚠️ Не удалось воспроизвести видео для предотвращения сна');
-    });
-
-    this.noSleepVideo = video;
-
-    // Переиграть каждые 10 секунд для гарантии
-    this.intervalId = setInterval(() => {
-      if (this.noSleepVideo && this.noSleepVideo.paused) {
-        this.noSleepVideo.play().catch(() => {});
-      }
-    }, 10000);
-  }
-
   async release() {
-    // Освобождение Wake Lock
     if (this.wakeLock) {
       try {
         await this.wakeLock.release();
         this.wakeLock = null;
-        console.log('✅ Wake Lock освобожден');
+        console.log('✅ Wake Lock успешно освобожден в ручном режиме');
       } catch (e) {
-        console.warn('⚠️ Ошибка при освобождении Wake Lock:', e);
+        console.warn('⚠️ Ошибка при ручном освобождении Wake Lock:', e);
       }
-    }
-
-    // Остановка видео
-    if (this.noSleepVideo) {
-      this.noSleepVideo.pause();
-      this.noSleepVideo.remove();
-      this.noSleepVideo = null;
-    }
-
-    // Очистка интервала
-    if (this.intervalId) {
-      clearInterval(this.intervalId);
-      this.intervalId = null;
     }
   }
 }
@@ -237,7 +195,7 @@ export default function NavigatorApp() {
     };
     if (window.DeviceOrientationEvent) {
       if (typeof DeviceOrientationEvent.requestPermission === 'function') {
-        // iOS 13+ требует разрешения — запросим при нажатии кнопки
+        // Запрос девайса на iOS будет обрабатываться по кнопке/клику
       } else {
         window.addEventListener('deviceorientation', handler, true);
       }
@@ -264,38 +222,27 @@ export default function NavigatorApp() {
     return () => { if (watchIdRef.current) navigator.geolocation.clearWatch(watchIdRef.current); };
   }, [navStarted]);
 
-  // Wake Lock для предотвращения сна экрана во время навигации
+  // Управление Wake Lock (включение/выключение)
   useEffect(() => {
     const wakeLockManager = wakeLockManagerRef.current;
 
     if (navStarted) {
-      wakeLockManager.acquire().then((success) => {
-        if (!success) {
-          console.warn('⚠️ Wake Lock не активирован. Экран может выключиться.');
-        }
-      });
+      wakeLockManager.acquire();
     } else {
       wakeLockManager.release();
     }
 
     return () => {
-      if (!navStarted) {
-        wakeLockManager.release();
-      }
+      wakeLockManager.release();
     };
   }, [navStarted]);
 
-  // Слушатель для восстановления Wake Lock если браузер его освободит
+  // Восстановление Wake Lock, когда пользователь возвращается на вкладку
   useEffect(() => {
-    if (!navStarted) return;
-
-    const handleVisibilityChange = async () => {
+    const handleVisibilityChange = () => {
       const wakeLockManager = wakeLockManagerRef.current;
       if (document.visibilityState === 'visible' && navStarted) {
-        const success = await wakeLockManager.acquire();
-        if (success) {
-          console.log('✅ Wake Lock восстановлен');
-        }
+        wakeLockManager.acquire();
       }
     };
 
@@ -320,17 +267,15 @@ export default function NavigatorApp() {
       userMarkerRef.current.setLngLat([userPos.lon, userPos.lat]);
     }
     
-    // Во время навигации: карта показывает дорогу вперёд (вертикально)
     if (following && navStarted && route) {
       const bearing = compass ?? userPos.heading ?? 0;
-      // Центр карты смещается ВЫШЕ, чтобы видеть дорогу впереди
       map.easeTo({
         center: [userPos.lon, userPos.lat], 
         zoom: 18,
         bearing: isNaN(bearing) ? 0 : bearing,
-        pitch: 70, // Высокий pitch для 3D вида вперёд
+        pitch: 70, 
         duration: 500,
-        padding: { top: 100, bottom: 450, left: 0, right: 0 }, // Пользователь внизу, дорога впереди вверху
+        padding: { top: 100, bottom: 450, left: 0, right: 0 }, 
       });
     } else if (following && route) {
       map.easeTo({ 
@@ -357,7 +302,6 @@ export default function NavigatorApp() {
       );
       if (d < minDist) { minDist = d; closestIdx = i; }
     }
-    // Показывать маршрут от текущей позиции
     setRouteCoords(coords.slice(closestIdx));
   }, [userPos, navStarted]);
 
@@ -510,13 +454,12 @@ export default function NavigatorApp() {
     } else {
       offRouteSinceRef.current = null;
     }
-    // Прибытие — автоматически показываем диалог сохранения
+    
     if (destination) {
       const dArr = haversine(userPos.lat, userPos.lon, destination.lat, destination.lon);
       if (dArr < 25 && lastSpokenStepRef.current !== 9999) {
         lastSpokenStepRef.current = 9999;
         if (voiceOn) speak('Вы прибыли в пункт назначения');
-        // Автоматически показываем диалог сохранения через 2 секунды
         setTimeout(() => {
           setArrivedDest(destination);
           setShowSavePrompt(true);
