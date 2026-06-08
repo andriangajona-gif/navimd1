@@ -3,6 +3,7 @@ import { X, Navigation as NavIcon, ArrowUp, ArrowUpLeft, ArrowUpRight, CornerUpL
 import { formatDistance, formatDuration } from '../lib/api';
 
 function maneuverIcon(step) {
+  if (!step) return <ArrowUp />;
   const t = step.type; const m = step.modifier;
   if (t === 'arrive') return <Flag />;
   if (t === 'depart') return <NavIcon />;
@@ -15,14 +16,14 @@ function maneuverIcon(step) {
 }
 
 export default function NavigationPanel({ route, currentStep, destination, onCancel, onFinish, navStarted, onStart, rerouting }) {
-  const step = route.steps?.[currentStep] || route.steps?.[0];
-  const remainingSteps = route.steps?.slice(currentStep) || [];
+  const step = route?.steps?.[currentStep] || route?.steps?.[0];
+  const remainingSteps = route?.steps?.slice(currentStep) || [];
   const remainingDist = remainingSteps.reduce((a, s) => a + (s.distance || 0), 0);
   const remainingDur = remainingSteps.reduce((a, s) => a + (s.duration || 0), 0);
 
   return (
     <>
-      {navStarted && (
+      {navStarted && step && (
         <div className="absolute top-2 left-2 right-2 z-30">
           <div className="bg-stone-900 text-white rounded-2xl shadow-lg px-3 py-2.5 flex items-center gap-2.5">
             <div className="w-11 h-11 rounded-xl bg-amber-500 flex items-center justify-center text-white shrink-0">
