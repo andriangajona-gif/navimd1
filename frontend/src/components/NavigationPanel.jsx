@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React from 'react';
 import { X, Navigation as NavIcon, ArrowUp, ArrowUpLeft, ArrowUpRight, CornerUpLeft, CornerUpRight, RotateCcw, Flag, Play, Loader2 } from 'lucide-react';
 import { formatDistance, formatDuration } from '../lib/api';
 
@@ -19,27 +19,6 @@ export default function NavigationPanel({ route, currentStep, destination, onCan
   const remainingSteps = route.steps?.slice(currentStep) || [];
   const remainingDist = remainingSteps.reduce((a, s) => a + (s.distance || 0), 0);
   const remainingDur = remainingSteps.reduce((a, s) => a + (s.duration || 0), 0);
-
-  // Функция синтеза речи
-  const speak = (text) => {
-    if (!('speechSynthesis' in window)) return;
-    window.speechSynthesis.cancel(); // Останавливаем прошлую фразу
-    const utterance = new SpeechSynthesisUtterance(text);
-    utterance.lang = 'ru-RU';
-    window.speechSynthesis.speak(utterance);
-  };
-
-  // Перепроверка и авто-озвучка при изменении шага (currentStep)
-  useEffect(() => {
-    if (navStarted && step?.instruction) {
-      // Если это первый шаг или он изменился в процессе движения
-      if (step.distance > 0) {
-        speak(`Через ${formatDistance(step.distance)}. ${step.instruction}`);
-      } else {
-        speak(step.instruction);
-      }
-    }
-  }, [currentStep, navStarted, step]);
 
   return (
     <>
@@ -91,13 +70,7 @@ export default function NavigationPanel({ route, currentStep, destination, onCan
               ><X size={18} /></button>
             </div>
             <button
-              onClick={() => {
-                // Хак для iOS Safari: разблокируем аудио-контекст при первом клике на Старт
-                if ('speechSynthesis' in window) {
-                  window.speechSynthesis.speak(new SpeechSynthesisUtterance(''));
-                }
-                onStart();
-              }}
+              onClick={onStart}
               className="w-full py-3.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-white text-[16px] font-semibold flex items-center justify-center gap-2 active:scale-[0.98] transition-transform shadow-sm"
             >
               <Play size={20} fill="currentColor" />
