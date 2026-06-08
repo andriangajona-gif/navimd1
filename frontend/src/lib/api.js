@@ -114,16 +114,6 @@ export const STYLE_URL = {
   ],
 };
 
-export function speak(text, lang = 'ru-RU') {
-  try {
-    if (!('speechSynthesis' in window)) return;
-    const u = new SpeechSynthesisUtterance(text);
-    u.lang = lang; u.rate = 1.0; u.pitch = 1.0; u.volume = 1.0;
-    window.speechSynthesis.cancel();
-    window.speechSynthesis.speak(u);
-  } catch (e) {}
-}
-
 export function formatDistance(m) {
   if (m == null) return '';
   if (m < 1000) return `${Math.round(m)} м`;
