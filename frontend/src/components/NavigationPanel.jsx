@@ -25,21 +25,21 @@ export default function NavigationPanel({ route, currentStep, destination, onCan
     <>
       {navStarted && step && (
         <div className="absolute top-2 left-2 right-2 z-30">
-          {/* Panou superior transparent - fără buton X */}
-          <div className="bg-black/50 backdrop-blur-md text-white rounded-2xl shadow-lg px-3 py-2.5 flex items-center gap-2.5">
-            <div className="w-11 h-11 rounded-xl bg-amber-500 flex items-center justify-center text-white shrink-0">
+          {/* Panou superior stil sticlă - transparent, blur, fără buton X */}
+          <div className="bg-white/10 backdrop-blur-xl border border-white/20 rounded-2xl shadow-lg px-3 py-2.5 flex items-center gap-2.5">
+            <div className="w-11 h-11 rounded-xl bg-amber-500/90 flex items-center justify-center text-white shrink-0">
               {React.cloneElement(maneuverIcon(step), { size: 24 })}
             </div>
             <div className="flex-1 min-w-0">
-              <div className="text-[12px] text-amber-300 font-semibold leading-none mb-0.5">
+              <div className="text-[12px] text-amber-200 font-semibold leading-none mb-0.5">
                 через {formatDistance(step.distance)}
               </div>
-              <div className="text-[14px] leading-tight line-clamp-2">{step.instruction}</div>
+              <div className="text-[14px] leading-tight line-clamp-2 text-white drop-shadow-md">{step.instruction}</div>
             </div>
-            {/* Butonul X a fost eliminat conform cerinței */}
+            {/* Butonul X eliminat complet */}
           </div>
           {rerouting && (
-            <div className="mt-2 mx-auto w-fit bg-stone-900/85 text-white text-[12px] rounded-full px-3 py-1.5 flex items-center gap-2">
+            <div className="mt-2 mx-auto w-fit bg-black/50 backdrop-blur-md text-white text-[12px] rounded-full px-3 py-1.5 flex items-center gap-2">
               <Loader2 size={14} className="animate-spin" />
               Перестраиваю маршрут…
             </div>
