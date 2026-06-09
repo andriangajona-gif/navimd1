@@ -75,30 +75,40 @@ export async function getRoute(startLat, startLon, endLat, endLon, profile = 'dr
   };
 }
 
-// Căutare străzi utilizând direct URL-ul map.md funcțional furnizat
+// Căutare străzi map.md folosind un CORS proxy stabil fără a altera structura URL-ului de bază
 export async function searchStreets(query, city = 'Floresti') {
   if (!query || query.trim().length < 2) return { results: [] };
   try {
-    // Apelăm direct URL-ul exact care funcționează în browser, fără proxy-uri care să îl strice
-    const url = `https://040c1d37-142e-4f81-adfb-c6f7a7dce753@map.md/api/companies/webmap/search_street?q=${encodeURIComponent(query)}&location=${encodeURIComponent(city)}&lang=ro`;
+    // URL-ul curat către map.md
+    const targetUrl = `https://map.md/api/companies/webmap/search_street?q=${encodeURIComponent(query)}&location=${encodeURIComponent(city)}&lang=ro`;
     
-    const res = await fetch(url);
+    // Folosim cors-anywhere sau un serviciu proxy similar care permite transmiterea corectă a header-elor Basic Auth
+    // Pentru producție stabilă, eliminăm utilizarea directă a caracterului '@' în interiorul parametrilor proxy-ului
+    const res = await fetch(`https://corsproxy.io/?${encodeURIComponent(targetUrl)}`, {
+      method: 'GET',
+      headers: {
+        // '040c1d37-142e-4f81-adfb-c6f7a7dce753' convertit în format standard Basic Auth Header
+        'Authorization': 'Basic MDQwYzFkMzctMTQyZS00ZjgxLWFkZmItYzZmN2E3ZGNlNzUz',
+        'Accept': 'application/json'
+      }
+    });
+
     if (!res.ok) return { results: [] };
-    
     const data = await res.json();
+    
+    // Structura din screenshot-ul tău: direct un masiv de obiecte străzi
     const items = Array.isArray(data) ? data : [];
     
     const results = items.map((item, idx) => {
-      // Preluăm numele exact returnat (ex: "str. Mihai Eminescu")
       const streetName = item.name || query;
       
-      // Extragem masivul direct de case din obiect ("buildings": ["1", "1/a", "2"...])
+      // Parsăm masivul numit exact "buildings" găsit în JSON-ul tău
       let realBuildings = [];
       if (item.buildings && Array.isArray(item.buildings)) {
         realBuildings = item.buildings.map(b => String(b));
       }
 
-      // Extragem corect lat și lon din interiorul obiectului "centroid"
+      // Parsăm din obiectul "centroid" conform imaginii trimise de tine
       const lat = item.centroid?.lat || 47.893;
       const lon = item.centroid?.lon || 28.301;
 
@@ -115,7 +125,7 @@ export async function searchStreets(query, city = 'Floresti') {
 
     return { results };
   } catch (e) {
-    console.error("Eroare la obținerea datelor direct de pe map.md:", e);
+    console.error("Eroare la obținerea datelor:", e);
     return { results: [] };
   }
 }
