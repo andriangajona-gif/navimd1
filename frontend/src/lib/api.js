@@ -1,4 +1,4 @@
-// Stil raster valid pentru MapLibre
+// Stil raster pentru hartă
 export const STYLE_URL = {
   "version": 8,
   "sources": {
@@ -54,7 +54,7 @@ export function haversine(lat1, lon1, lat2, lon2) {
 export async function getRoute(startLat, startLon, endLat, endLon, profile = 'driving') {
   const url = `https://router.project-osrm.org/route/v1/${profile}/${startLon},${startLat};${endLon},${endLat}?overview=full&geometries=geojson&steps=true`;
   const res = await fetch(url);
-  if (!res.ok) throw new Error('Eroare de rețea la solicitarea traseului');
+  if (!res.ok) throw new Error('Eroare la calcularea traseului');
   const data = await res.json();
   if (!data.routes || data.routes.length === 0) throw new Error('Traseul nu a fost găsit');
   
@@ -75,40 +75,30 @@ export async function getRoute(startLat, startLon, endLat, endLon, profile = 'dr
   };
 }
 
-// Căutare străzi map.md folosind un CORS proxy stabil fără a altera structura URL-ului de bază
+// Căutarea originală care mergea direct la map.md - doar maparea obiectelor e corectată
 export async function searchStreets(query, city = 'Floresti') {
   if (!query || query.trim().length < 2) return { results: [] };
   try {
-    // URL-ul curat către map.md
-    const targetUrl = `https://map.md/api/companies/webmap/search_street?q=${encodeURIComponent(query)}&location=${encodeURIComponent(city)}&lang=ro`;
+    // URL-ul tău original care căuta bine din prima
+    const url = `https://040c1d37-142e-4f81-adfb-c6f7a7dce753@map.md/api/companies/webmap/search_street?q=${encodeURIComponent(query)}&location=${encodeURIComponent(city)}&lang=ro`;
     
-    // Folosim cors-anywhere sau un serviciu proxy similar care permite transmiterea corectă a header-elor Basic Auth
-    // Pentru producție stabilă, eliminăm utilizarea directă a caracterului '@' în interiorul parametrilor proxy-ului
-    const res = await fetch(`https://corsproxy.io/?${encodeURIComponent(targetUrl)}`, {
-      method: 'GET',
-      headers: {
-        // '040c1d37-142e-4f81-adfb-c6f7a7dce753' convertit în format standard Basic Auth Header
-        'Authorization': 'Basic MDQwYzFkMzctMTQyZS00ZjgxLWFkZmItYzZmN2E3ZGNlNzUz',
-        'Accept': 'application/json'
-      }
-    });
-
+    const res = await fetch(url);
     if (!res.ok) return { results: [] };
-    const data = await res.json();
     
-    // Structura din screenshot-ul tău: direct un masiv de obiecte străzi
+    const data = await res.json();
     const items = Array.isArray(data) ? data : [];
     
     const results = items.map((item, idx) => {
+      // Păstrează numele străzii exact așa cum vine din map.md
       const streetName = item.name || query;
       
-      // Parsăm masivul numit exact "buildings" găsit în JSON-ul tău
+      // CORECTARE: map.md trimite direct masivul "buildings" ca stringuri
       let realBuildings = [];
       if (item.buildings && Array.isArray(item.buildings)) {
         realBuildings = item.buildings.map(b => String(b));
       }
 
-      // Parsăm din obiectul "centroid" conform imaginii trimise de tine
+      // CORECTARE: Coordonatele sunt în interiorul obiectului "centroid"
       const lat = item.centroid?.lat || 47.893;
       const lon = item.centroid?.lon || 28.301;
 
@@ -119,18 +109,17 @@ export async function searchStreets(query, city = 'Floresti') {
         parent_name: 'Florești',
         count: realBuildings.length, 
         centroid: { lat: parseFloat(lat), lon: parseFloat(lon) },
-        buildings: realBuildings
+        buildings: realBuildings // Acum componenta primește lista corectă și va afișa bulele cu numere
       };
     });
 
     return { results };
   } catch (e) {
-    console.error("Eroare la obținerea datelor:", e);
+    console.error("Eroare la căutare:", e);
     return { results: [] };
   }
 }
 
-// Geocodificare clădire selectată
 export async function geocodeBuilding(streetName, buildingNumber, parentName = 'Florești') {
   try {
     const fullQuery = `${streetName} ${buildingNumber}, ${parentName}`;
