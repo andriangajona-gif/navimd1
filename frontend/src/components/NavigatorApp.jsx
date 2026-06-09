@@ -164,6 +164,9 @@ export default function NavigatorApp() {
       setMapReady(true); 
       setMapInstance(map);
 
+      // Важное исправление белого экрана: форсируем перерасчет контейнера на мобильных
+      setTimeout(() => { map.resize(); }, 300);
+
       try {
         const layers = map.getStyle().layers;
         const houseLayers = layers.filter(l => 
