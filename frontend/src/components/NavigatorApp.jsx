@@ -1,6 +1,5 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import maplibregl from 'maplibre-gl';
-// Обязательный импорт CSS-стилей для корректного рендеринга слоев Canvas
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { STYLE_URL, getRoute, formatDistance, formatDuration, haversine, recordTrip, scoreRoute, getPreferredRoute } from '../lib/api';
 import SearchPanel from './SearchPanel';
@@ -142,7 +141,6 @@ export default function NavigatorApp() {
   const lastReroutedAtRef = useRef(0);
   const offRouteSinceRef = useRef(null);
 
-  // Инициализация карты в ВЕКТОРНОМ режиме с фиксом для Safari CORS
   useEffect(() => {
     if (mapRef.current) return;
     
@@ -157,14 +155,8 @@ export default function NavigatorApp() {
       pitchWithRotate: true,
       dragRotate: true,
       maxBounds: [[24.5, 45.0], [31.5, 49.0]],
-      transformRequest: (url, resourceType) => {
-        if (resourceType === 'Tile' || resourceType === 'Style') {
-          return {
-            url: url,
-            headers: { 'Accept': 'application/x-protobuf, application/json' }
-          };
-        }
-        return { url: url };
+      transformRequest: (url) => {
+        return { url };
       }
     });
 
@@ -172,7 +164,6 @@ export default function NavigatorApp() {
       setMapReady(true); 
       setMapInstance(map);
 
-      // === КАСТОМИЗАЦИЯ НОМЕРОВ ДОМОВ ===
       try {
         const layers = map.getStyle().layers;
         const houseLayers = layers.filter(l => 
@@ -214,7 +205,6 @@ export default function NavigatorApp() {
     };
   }, []);
 
-  // Компас
   useEffect(() => {
     const handler = (e) => {
       const deg = e.webkitCompassHeading ?? e.alpha;
@@ -228,7 +218,6 @@ export default function NavigatorApp() {
     return () => window.removeEventListener('deviceorientation', handler, true);
   }, []);
 
-  // Геолокация
   useEffect(() => {
     if (!('geolocation' in navigator)) return;
     const onPos = (pos) => {
@@ -249,7 +238,6 @@ export default function NavigatorApp() {
     return () => { if (watchIdRef.current) navigator.geolocation.clearWatch(watchIdRef.current); };
   }, [navStarted]);
 
-  // Блокировка экрана (WakeLock)
   useEffect(() => {
     const wakeLockManager = wakeLockManagerRef.current;
     if (navStarted) wakeLockManager.acquire();
@@ -266,7 +254,6 @@ export default function NavigatorApp() {
     return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
   }, [navStarted]);
 
-  // Ведение по маркеру и вращение
   useEffect(() => {
     if (!mapReady || !userPos) return;
     const map = mapRef.current;
@@ -304,7 +291,6 @@ export default function NavigatorApp() {
     }
   }, [userPos, mapReady, following, route, navStarted, compass]);
 
-  // Обрезка линии маршрута
   useEffect(() => {
     if (!userPos || !routeGeomRef.current || !navStarted) return;
     const coords = routeGeomRef.current;
