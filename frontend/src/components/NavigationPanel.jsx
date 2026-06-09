@@ -25,7 +25,8 @@ export default function NavigationPanel({ route, currentStep, destination, onCan
     <>
       {navStarted && step && (
         <div className="absolute top-2 left-2 right-2 z-30">
-          <div className="bg-stone-900 text-white rounded-2xl shadow-lg px-3 py-2.5 flex items-center gap-2.5">
+          {/* Panou superior transparent - fără buton X */}
+          <div className="bg-black/50 backdrop-blur-md text-white rounded-2xl shadow-lg px-3 py-2.5 flex items-center gap-2.5">
             <div className="w-11 h-11 rounded-xl bg-amber-500 flex items-center justify-center text-white shrink-0">
               {React.cloneElement(maneuverIcon(step), { size: 24 })}
             </div>
@@ -35,11 +36,7 @@ export default function NavigationPanel({ route, currentStep, destination, onCan
               </div>
               <div className="text-[14px] leading-tight line-clamp-2">{step.instruction}</div>
             </div>
-            <button
-              onClick={onCancel}
-              className="w-8 h-8 rounded-full bg-stone-700 flex items-center justify-center text-white shrink-0"
-              aria-label="cancel"
-            ><X size={16} /></button>
+            {/* Butonul X a fost eliminat conform cerinței */}
           </div>
           {rerouting && (
             <div className="mt-2 mx-auto w-fit bg-stone-900/85 text-white text-[12px] rounded-full px-3 py-1.5 flex items-center gap-2">
