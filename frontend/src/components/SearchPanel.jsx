@@ -2,6 +2,17 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Search, X, MapPin, Building2, ChevronRight, ArrowLeft, Star, Clock, Plus } from 'lucide-react';
 import { searchStreets, geocodeBuilding } from '../lib/api';
 
+// Corecții manuale pentru Strada 9 Mai (Florești)
+// Folosește coordonatele exacte de pe Google Maps
+const MANUAL_COORDS = {
+  "21": { lat: 47.90479, lon: 28.29035 },  // exemplu (poți ajusta)
+  "25": { lat: 47.90479, lon: 28.29035 },  // la fel, până la corecții individuale
+  "67": { lat: 47.90616, lon: 28.28910 },  // corectat cu coordonatele din ultima poză
+  // Adaugă aici alte numere dacă sunt probleme:
+  // "65": { lat: 47.90580, lon: 28.28950 },
+  // "70": { lat: 47.90650, lon: 28.28880 },
+};
+
 export default function SearchPanel({ onSelectDestination, getCustomRoute, getPreferredRoute }) {
   const [q, setQ] = useState('');
   const [open, setOpen] = useState(false);
@@ -39,7 +50,6 @@ export default function SearchPanel({ onSelectDestination, getCustomRoute, getPr
   }, [q, selectedStreet]);
 
   const handleStreetClick = (street) => {
-    // Dacă strada este cea veche „str. 9 Mai”, o înlocuim cu varianta corectă
     if (street.name === "str. 9 Mai") {
       street = { ...street, name: "Strada 9 Mai" };
     }
@@ -48,25 +58,36 @@ export default function SearchPanel({ onSelectDestination, getCustomRoute, getPr
 
   const handleBuildingClick = async (b) => {
     if (!selectedStreet) return;
-    const c = selectedStreet.centroid || { lat: 47.0124, lon: 28.8474 };
-    let lat = c.lat, lon = c.lon;
+    let lat, lon;
 
-    // Dacă este strada 9 Mai, nu mai folosi geocodarea pentru niciun număr,
-    // ci mergi direct pe centroidul străzii (sau coordonatele tale preferate).
-    // Astfel, numărul 21 nu va mai fi folosit.
-    if (selectedStreet.name === "Strada 9 Mai") {
-      // Poți înlocui coordonatele cu cele reale ale Străzii 9 Mai din Florești
-      // Exemplu (înlocuiește cu valorile corecte):
-      // lat = 47.8912; lon = 28.3015;
-      // Păstrăm centroidul returnat de API (care ar trebui să fie corect)
+    // 1. Dacă există coordonate manuale pentru această stradă + număr
+    if (selectedStreet.name === "Strada 9 Mai" && MANUAL_COORDS[b]) {
+      lat = MANUAL_COORDS[b].lat;
+      lon = MANUAL_COORDS[b].lon;
+    } 
+    // 2. Pentru Strada 9 Mai (dar fără corecție manuală) – folosește centroidul străzii
+    else if (selectedStreet.name === "Strada 9 Mai") {
+      const c = selectedStreet.centroid || { lat: 47.90500, lon: 28.28970 };
       lat = c.lat;
       lon = c.lon;
-    } else {
+    } 
+    // 3. Pentru alte străzi – geocodare normală
+    else {
       try {
         const geo = await geocodeBuilding(selectedStreet.name, b, selectedStreet.parent_name);
-        if (geo.lat && geo.lon) { lat = geo.lat; lon = geo.lon; }
+        if (geo.lat && geo.lon) {
+          lat = geo.lat;
+          lon = geo.lon;
+        } else {
+          const c = selectedStreet.centroid || { lat: 47.0124, lon: 28.8474 };
+          lat = c.lat;
+          lon = c.lon;
+        }
       } catch (e) {
-        console.warn('Geocoding error for building', b, ':', e.message);
+        console.warn('Geocoding error', e);
+        const c = selectedStreet.centroid || { lat: 47.0124, lon: 28.8474 };
+        lat = c.lat;
+        lon = c.lon;
       }
     }
 
@@ -113,7 +134,6 @@ export default function SearchPanel({ onSelectDestination, getCustomRoute, getPr
     setError(null); setPendingDest(null);
   };
 
-  // Ecranul de selecție a tipului de rută (după alegerea numărului)
   if (pendingDest) {
     return (
       <div className="absolute inset-0 z-50 bg-black/50 flex items-end">
@@ -212,8 +232,8 @@ export default function SearchPanel({ onSelectDestination, getCustomRoute, getPr
               <div className="text-[14px] font-bold text-stone-800 mb-2.5 px-1">Выберите номер дома ({selectedStreet.buildings?.length || 0}):</div>
               <div className="grid grid-cols-4 sm:grid-cols-6 gap-2">
                 {(selectedStreet.buildings || []).map((b) => {
-                  // Pentru strada 9 Mai, eliminăm complet numărul 21 (greșit)
-                  if (selectedStreet.name === "Strada 9 Mai" && b === "21") return null;
+                  // Poți ascunde numerele care nu există în realitate (ex: dacă 67 nu există, debifează rândul următor)
+                  // if (selectedStreet.name === "Strada 9 Mai" && (b === "21" || b === "67")) return null;
                   return (
                     <button
                       key={b}
