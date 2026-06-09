@@ -17,7 +17,6 @@ export async function getRoute(fromLat, fromLon, toLat, toLon, profile = 'drivin
   return data;
 }
 
-// ИСПРАВЛЕНО: Гарантируем, что если город не передан или передан криво, поиск идет по Florești
 export async function geocodeBuilding(street, building, city = 'Florești') {
   const cityName = city && city.includes('raion') ? 'Florești' : (city || 'Florești');
   const { data } = await api.get('/geocode', { params: { street, building, city: cityName } });
@@ -91,13 +90,12 @@ export function getPreferredRoute(destLabel) {
   } catch (e) { return null; }
 }
 
-// Заглушка функции озвучки для предотвращения ошибок сборки на Vercel
+// Принудительный экспорт заглушки, чтобы сборщик Vercel не ругался
 export function speak(text) {
-  console.log("Голос:", text);
+  console.log("Голос заглушен:", text);
 }
 
-// ИСПРАВЛЕНО: Переключаемся на ВЕКТОРНЫЙ стиль OpenFreeMap. 
-// Теперь карта станет современной, а номера домов — настраиваемыми, крупными и жирными!
+// Современный векторный стиль с поддержкой динамических шрифтов
 export const STYLE_URL = 'https://tiles.openfreemap.org/styles/liberty';
 
 export function formatDistance(m) {
