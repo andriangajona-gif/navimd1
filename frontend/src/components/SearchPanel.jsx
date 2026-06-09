@@ -22,7 +22,14 @@ export default function SearchPanel({ onSelectDestination, getCustomRoute, getPr
       setLoading(true); setError(null);
       try {
         const data = await searchStreets(q, 'Florești');
-        const items = (data.results || []).filter(it => it.type === 'street');
+        let items = (data.results || []).filter(it => it.type === 'street');
+        // Corectăm numele străzii "str. 9 Mai" în "Strada 9 Mai"
+        items = items.map(it => {
+          if (it.name === "str. 9 Mai") {
+            return { ...it, name: "Strada 9 Mai" };
+          }
+          return it;
+        });
         setResults(items);
       } catch (e) {
         setError('Ошибка поиска');
@@ -31,17 +38,36 @@ export default function SearchPanel({ onSelectDestination, getCustomRoute, getPr
     return () => debounceRef.current && clearTimeout(debounceRef.current);
   }, [q, selectedStreet]);
 
-  const handleStreetClick = (street) => setSelectedStreet(street);
+  const handleStreetClick = (street) => {
+    // Dacă strada este cea veche „str. 9 Mai”, o înlocuim cu varianta corectă
+    if (street.name === "str. 9 Mai") {
+      street = { ...street, name: "Strada 9 Mai" };
+    }
+    setSelectedStreet(street);
+  };
 
   const handleBuildingClick = async (b) => {
     if (!selectedStreet) return;
     const c = selectedStreet.centroid || { lat: 47.0124, lon: 28.8474 };
     let lat = c.lat, lon = c.lon;
-    try {
-      const geo = await geocodeBuilding(selectedStreet.name, b, selectedStreet.parent_name);
-      if (geo.lat && geo.lon) { lat = geo.lat; lon = geo.lon; }
-    } catch (e) {
-      console.warn('Geocoding error for building', b, ':', e.message);
+
+    // Dacă este strada 9 Mai, nu mai folosi geocodarea pentru niciun număr,
+    // ci mergi direct pe centroidul străzii (sau coordonatele tale preferate).
+    // Astfel, numărul 21 nu va mai fi folosit.
+    if (selectedStreet.name === "Strada 9 Mai") {
+      // Poți înlocui coordonatele cu cele reale ale Străzii 9 Mai din Florești
+      // Exemplu (înlocuiește cu valorile corecte):
+      // lat = 47.8912; lon = 28.3015;
+      // Păstrăm centroidul returnat de API (care ar trebui să fie corect)
+      lat = c.lat;
+      lon = c.lon;
+    } else {
+      try {
+        const geo = await geocodeBuilding(selectedStreet.name, b, selectedStreet.parent_name);
+        if (geo.lat && geo.lon) { lat = geo.lat; lon = geo.lon; }
+      } catch (e) {
+        console.warn('Geocoding error for building', b, ':', e.message);
+      }
     }
 
     const dest = {
@@ -55,7 +81,6 @@ export default function SearchPanel({ onSelectDestination, getCustomRoute, getPr
     const hasCustom = !!(getCustomRoute && getCustomRoute(dest.label));
     const hasPreferred = !!(getPreferredRoute && getPreferredRoute(dest.label));
 
-    // Изменение: Теперь ВСЕГДА открываем шторку выбора маршрута для этого дома
     setPendingDest(dest);
     setPendingHasCustom(hasCustom);
     setPendingHasPreferred(hasPreferred);
@@ -64,7 +89,6 @@ export default function SearchPanel({ onSelectDestination, getCustomRoute, getPr
 
   const handleChooseStandard = () => {
     if (pendingDest) {
-      // Идем по стандартному маршруту
       onSelectDestination(pendingDest, false);
       setPendingDest(null); setQ(''); setSelectedStreet(null); setResults([]);
     }
@@ -72,7 +96,6 @@ export default function SearchPanel({ onSelectDestination, getCustomRoute, getPr
 
   const handleChooseCustom = () => {
     if (pendingDest) {
-      // Загружаем сохраненный трек
       onSelectDestination(pendingDest, true);
       setPendingDest(null); setQ(''); setSelectedStreet(null); setResults([]);
     }
@@ -80,9 +103,6 @@ export default function SearchPanel({ onSelectDestination, getCustomRoute, getPr
 
   const handleCreateOwnRoute = () => {
     if (pendingDest) {
-      // Переключаем в режим создания/записи собственного пути
-      // Передаем false в использование кастомного (чтобы построить стандартную точку старта),
-      // но навигатор начнет сохранять трек в реальном времени при поездке.
       onSelectDestination(pendingDest, false);
       setPendingDest(null); setQ(''); setSelectedStreet(null); setResults([]);
     }
@@ -93,7 +113,7 @@ export default function SearchPanel({ onSelectDestination, getCustomRoute, getPr
     setError(null); setPendingDest(null);
   };
 
-  // Нижнее меню (Шторка выбора маршрутов после выбора дома)
+  // Ecranul de selecție a tipului de rută (după alegerea numărului)
   if (pendingDest) {
     return (
       <div className="absolute inset-0 z-50 bg-black/50 flex items-end">
@@ -103,7 +123,6 @@ export default function SearchPanel({ onSelectDestination, getCustomRoute, getPr
             {pendingDest.street}, дом {pendingDest.building}
           </div>
 
-          {/* КНОПКА ДЛЯ СОХРАНЕННОГО МАРШРУТА (Появляется только если он уже был записан ранее) */}
           {(pendingHasCustom || pendingHasPreferred) ? (
             <button
               onClick={handleChooseCustom}
@@ -113,7 +132,6 @@ export default function SearchPanel({ onSelectDestination, getCustomRoute, getPr
               {pendingHasCustom ? 'Поехать моим сохранённым путём' : 'Включить привычный маршрут'}
             </button>
           ) : (
-            /* КНОПКА ДЛЯ СОЗДАНИЯ СВОЕГО МАРШРУТА (Если едем впервые на этот адрес) */
             <button
               onClick={handleCreateOwnRoute}
               className="w-full mb-3 py-3.5 rounded-xl bg-stone-900 text-white text-[15px] font-bold flex items-center justify-center gap-2 active:scale-98 transition-transform"
@@ -123,7 +141,6 @@ export default function SearchPanel({ onSelectDestination, getCustomRoute, getPr
             </button>
           )}
 
-          {/* СТАНДАРТНЫЙ ВАРИАНТ */}
           <button
             onClick={handleChooseStandard}
             className="w-full py-3.5 rounded-xl border-2 border-stone-200 text-stone-700 text-[15px] font-semibold active:bg-stone-50"
@@ -194,16 +211,20 @@ export default function SearchPanel({ onSelectDestination, getCustomRoute, getPr
             <div className="p-3">
               <div className="text-[14px] font-bold text-stone-800 mb-2.5 px-1">Выберите номер дома ({selectedStreet.buildings?.length || 0}):</div>
               <div className="grid grid-cols-4 sm:grid-cols-6 gap-2">
-                {(selectedStreet.buildings || []).map((b) => (
-                  <button
-                    key={b}
-                    onClick={() => handleBuildingClick(b)}
-                    className="px-2 py-3 rounded-xl border border-stone-200 bg-white text-[14px] font-bold text-stone-800 hover:bg-amber-50 hover:border-amber-300 active:scale-95 transition-all flex items-center justify-center gap-1 shadow-sm"
-                  >
-                    <Building2 size={13} className="text-stone-400 shrink-0" />
-                    <span className="truncate">{b}</span>
-                  </button>
-                ))}
+                {(selectedStreet.buildings || []).map((b) => {
+                  // Pentru strada 9 Mai, eliminăm complet numărul 21 (greșit)
+                  if (selectedStreet.name === "Strada 9 Mai" && b === "21") return null;
+                  return (
+                    <button
+                      key={b}
+                      onClick={() => handleBuildingClick(b)}
+                      className="px-2 py-3 rounded-xl border border-stone-200 bg-white text-[14px] font-bold text-stone-800 hover:bg-amber-50 hover:border-amber-300 active:scale-95 transition-all flex items-center justify-center gap-1 shadow-sm"
+                    >
+                      <Building2 size={13} className="text-stone-400 shrink-0" />
+                      <span className="truncate">{b}</span>
+                    </button>
+                  );
+                })}
               </div>
             </div>
           )}
