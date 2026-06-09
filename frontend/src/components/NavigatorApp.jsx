@@ -157,7 +157,6 @@ export default function NavigatorApp() {
       pitchWithRotate: true,
       dragRotate: true,
       maxBounds: [[24.5, 45.0], [31.5, 49.0]],
-      // Переопределение заголовков запросов для обхода политики CORS на смартфонах
       transformRequest: (url, resourceType) => {
         if (resourceType === 'Tile' || resourceType === 'Style') {
           return {
@@ -305,4 +304,235 @@ export default function NavigatorApp() {
     }
   }, [userPos, mapReady, following, route, navStarted, compass]);
 
-  // Обрезка линии маршру
+  // Обрезка линии маршрута
+  useEffect(() => {
+    if (!userPos || !routeGeomRef.current || !navStarted) return;
+    const coords = routeGeomRef.current;
+    let closestIdx = 0;
+    let minDist = Infinity;
+    for (let i = 0; i < coords.length - 1; i++) {
+      const d = pointToSegMeters(userPos.lat, userPos.lon, coords[i][1], coords[i][0], coords[i+1][1], coords[i+1][0]);
+      if (d < minDist) { minDist = d; closestIdx = i; }
+    }
+    setRouteCoords(coords.slice(closestIdx));
+  }, [userPos, navStarted]);
+
+  const drawRoute = useCallback((geo) => {
+    routeGeomRef.current = geo.coordinates;
+    setRouteCoords(geo.coordinates);
+  }, []);
+
+  const resetAll = useCallback(() => {
+    if (destMarkerRef.current) { destMarkerRef.current.remove(); destMarkerRef.current = null; }
+    const map = mapRef.current;
+    if (map) map.easeTo({ pitch: 0, bearing: 0, zoom: 14, duration: 600 });
+    routeGeomRef.current = null;
+    gpsTrackRef.current = [];
+    setRoute(null); setRouteCoords(null); setDestination(null);
+    setCurrentStep(0); setNavStarted(false);
+    offRouteSinceRef.current = null;
+    setShowSavePrompt(false);
+    setArrivedDest(null);
+  }, []);
+
+  const handleSaveRoute = useCallback(() => {
+    if (arrivedDest && gpsTrackRef.current.length > 5) {
+      saveCustomRoute(arrivedDest.label, gpsTrackRef.current);
+      recordTrip(gpsTrackRef.current, arrivedDest.label);
+    }
+    resetAll();
+  }, [arrivedDest, resetAll]);
+
+  const handleSkipSave = useCallback(() => {
+    if (arrivedDest && gpsTrackRef.current.length > 5) {
+      recordTrip(gpsTrackRef.current, arrivedDest.label);
+    }
+    resetAll();
+  }, [arrivedDest, resetAll]);
+
+  const clearRoute = useCallback(() => {
+    if (navStarted && gpsTrackRef.current.length > 5) {
+      setArrivedDest(destination);
+      setShowSavePrompt(true);
+    } else {
+      resetAll();
+    }
+  }, [navStarted, destination, resetAll]);
+
+  const handleSelectDestination = useCallback(async (dest, useCustom = false) => {
+    setError(null);
+    if (!userPos) { setError('Ожидаем GPS-сигнал.'); return; }
+    setDestination(dest);
+    const map = mapRef.current;
+    if (destMarkerRef.current) destMarkerRef.current.remove();
+    
+    const el = document.createElement('div');
+    el.className = 'dest-marker';
+    el.innerHTML = '<svg width="28" height="36" viewBox="0 0 24 32" fill="currentColor"><path d="M12 0C5.4 0 0 5.4 0 12c0 8.4 12 20 12 20s12-11.6 12-20C24 5.4 18.6 0 12 0zm0 16c-2.2 0-4-1.8-4-4s1.8-4 4-4 4 1.8 4 4-1.8 4-4 4z"/></svg>';
+    destMarkerRef.current = new maplibregl.Marker({ element: el, anchor: 'bottom' })
+      .setLngLat([dest.lon, dest.lat]).addTo(map);
+
+    if (useCustom) {
+      const custom = getCustomRoute(dest.label);
+      const preferred = getPreferredRoute(dest.label);
+      const track = custom?.track || preferred;
+      if (track) {
+        const fakeRoute = {
+          distance: 0, duration: 0,
+          geometry: { type: 'LineString', coordinates: track },
+          steps: [{ distance: 0, duration: 0, name: '', instruction: 'Следуйте по вашему личному маршруту', type: 'depart', modifier: '', location: track[0] }]
+        };
+        setRoute(fakeRoute); setCurrentStep(0); setNavStarted(false);
+        drawRoute(fakeRoute.geometry);
+        const bounds = track.reduce((b, c) => b.extend(c), new maplibregl.LngLatBounds(track[0], track[0]));
+        map.fitBounds(bounds, { padding: { top: 120, bottom: 240, left: 40, right: 40 }, duration: 800 });
+        setFollowing(false);
+        return;
+      }
+    }
+
+    try {
+      const r = await getRoute(userPos.lat, userPos.lon, dest.lat, dest.lon, profile);
+      setRoute(r); setCurrentStep(0); setNavStarted(false);
+      drawRoute(r.geometry);
+      const coords = r.geometry.coordinates;
+      const bounds = coords.reduce((b, c) => b.extend(c), new maplibregl.LngLatBounds(coords[0], coords[0]));
+      map.fitBounds(bounds, { padding: { top: 120, bottom: 240, left: 40, right: 40 }, duration: 800 });
+      setFollowing(false);
+    } catch (e) {
+      setError('Не удалось построить маршрут.');
+    }
+  }, [userPos, drawRoute, profile]);
+
+  const startNavigation = useCallback(() => {
+    if (!route || !userPos) return;
+    gpsTrackRef.current = [];
+    setNavStarted(true);
+    setFollowing(true);
+    offRouteSinceRef.current = null;
+    const map = mapRef.current;
+    if (map) {
+      map.easeTo({
+        center: [userPos.lon, userPos.lat], 
+        zoom: 18,
+        bearing: compass ?? userPos.heading ?? 0,
+        pitch: 70,
+        duration: 900,
+        padding: { top: 100, bottom: 450, left: 0, right: 0 },
+      });
+    }
+  }, [route, userPos, compass]);
+
+  useEffect(() => {
+    if (!route || !userPos || !navStarted) return;
+    const steps = route.steps || [];
+    let nextIdx = currentStep;
+    for (let i = currentStep; i < steps.length; i++) {
+      const loc = steps[i].location;
+      if (!loc) continue;
+      const d = haversine(userPos.lat, userPos.lon, loc[1], loc[0]);
+      if (d < 30 && i + 1 < steps.length) nextIdx = i + 1;
+    }
+    if (nextIdx !== currentStep) setCurrentStep(nextIdx);
+
+    const coords = route.geometry?.coordinates || [];
+    const distOff = distToRouteMeters(userPos.lat, userPos.lon, coords);
+    const now = Date.now();
+    
+    if (distOff > 40) {
+      if (offRouteSinceRef.current == null) offRouteSinceRef.current = now;
+      const elapsed = now - offRouteSinceRef.current;
+      const canReroute = now - lastReroutedAtRef.current > 8000;
+      if (elapsed > 3000 && canReroute && destination && !rerouting) {
+        lastReroutedAtRef.current = now;
+        offRouteSinceRef.current = null;
+        setRerouting(true);
+        getRoute(userPos.lat, userPos.lon, destination.lat, destination.lon, profile)
+          .then((r) => { setRoute(r); setCurrentStep(0); drawRoute(r.geometry); })
+          .catch(() => {})
+          .finally(() => setRerouting(false));
+      }
+    } else {
+      offRouteSinceRef.current = null;
+    }
+    
+    if (destination) {
+      const dArr = haversine(userPos.lat, userPos.lon, destination.lat, destination.lon);
+      if (dArr < 25) {
+        setTimeout(() => {
+          setArrivedDest(destination);
+          setShowSavePrompt(true);
+        }, 2000);
+      }
+    }
+  }, [userPos, route, currentStep, destination, navStarted, profile, drawRoute, rerouting]);
+
+  const recenter = () => {
+    if (userPos && mapRef.current) {
+      mapRef.current.flyTo({ center: [userPos.lon, userPos.lat], zoom: 16, duration: 600 });
+      setFollowing(true);
+    }
+  };
+
+  return (
+    <div className="App" style={{ position: 'relative', width: '100vw', height: '100vh', overflow: 'hidden' }}>
+      <div 
+        ref={mapContainerRef} 
+        style={{ position: 'absolute', top: 0, bottom: 0, left: 0, right: 0, width: '100%', height: '100%' }} 
+      />
+      
+      {mapInstance && routeCoords && (
+        <RouteOverlay routeCoords={routeCoords} map={mapInstance} />
+      )}
+      {!route && (
+        <SearchPanel
+          onSelectDestination={handleSelectDestination}
+          userPos={userPos}
+          getCustomRoute={getCustomRoute}
+          getPreferredRoute={getPreferredRoute}
+        />
+      )}
+
+      <div className="absolute right-3 bottom-48 z-30 flex flex-col gap-2">
+        <button
+          onClick={recenter}
+          className="w-11 h-11 rounded-full bg-white shadow-md flex items-center justify-center text-stone-700 active:scale-95 transition-transform"
+        >
+          <Locate size={20} />
+        </button>
+      </div>
+
+      {showSavePrompt && (
+        <div className="absolute inset-0 z-50 bg-black/50 flex items-center justify-center px-4">
+          <div className="bg-white rounded-2xl p-5 shadow-xl w-full max-w-sm">
+            <div className="text-[17px] font-bold text-stone-900 mb-2">🎉 Вы прибыли!</div>
+            <div className="text-[14px] text-stone-500 mb-5">
+              Сохранить ваш путь к <span className="font-medium text-stone-700">{arrivedDest?.label}</span>? Система запомнит его и будет предлагать в будущем.
+            </div>
+            <div className="flex gap-3">
+              <button onClick={handleSkipSave} className="flex-1 py-3 rounded-xl border border-stone-200 text-stone-600 text-[15px] font-medium">
+                Не сохранять
+              </button>
+              <button onClick={handleSaveRoute} className="flex-1 py-3 rounded-xl bg-amber-500 text-white text-[15px] font-semibold">
+                Сохранить
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {route && !showSavePrompt && (
+        <NavigationPanel
+          route={route}
+          currentStep={currentStep}
+          destination={destination}
+          onCancel={clearRoute}
+          onFinish={clearRoute}
+          navStarted={navStarted}
+          onStart={startNavigation}
+          rerouting={rerouting}
+        />
+      )}
+    </div>
+  );
+}
