@@ -1,5 +1,7 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import maplibregl from 'maplibre-gl';
+// Обязательный импорт CSS-стилей для корректного рендеринга слоев Canvas
+import 'maplibre-gl/dist/maplibre-gl.css';
 import { STYLE_URL, getRoute, formatDistance, formatDuration, haversine, recordTrip, scoreRoute, getPreferredRoute } from '../lib/api';
 import SearchPanel from './SearchPanel';
 import NavigationPanel from './NavigationPanel';
@@ -140,12 +142,12 @@ export default function NavigatorApp() {
   const lastReroutedAtRef = useRef(0);
   const offRouteSinceRef = useRef(null);
 
-  // Инициализация карты в ВЕКТОРНОМ режиме с огромными номерами домов
+  // Инициализация карты
   useEffect(() => {
     if (mapRef.current) return;
     const map = new maplibregl.Map({
       container: mapContainerRef.current,
-      style: STYLE_URL, // Векторная ссылка
+      style: STYLE_URL,
       center: DEFAULT_CENTER,
       zoom: 12,
       minZoom: 6,
@@ -171,7 +173,6 @@ export default function NavigatorApp() {
 
         houseLayers.forEach(layer => {
           const layerId = layer.id;
-          // Делаем номера домов огромными на зумах 16-18
           map.setLayoutProperty(layerId, 'text-size', [
             'interpolate', ['linear'], ['zoom'],
             14, 11,
@@ -179,12 +180,9 @@ export default function NavigatorApp() {
             17, 32,
             18, 42
           ]);
-          // Принудительный Bold (жирный шрифт)
           map.setLayoutProperty(layerId, 'text-font', ["Metropolis Bold"]);
-          // Поверх всех остальных объектов
           map.setLayoutProperty(layerId, 'text-allow-overlap', true);
           map.setLayoutProperty(layerId, 'text-ignore-placement', true);
-          // Толстый контрастный контур
           map.setPaintProperty(layerId, 'text-halo-width', 3.5);
           map.setPaintProperty(layerId, 'text-halo-color', '#ffffff');
           map.setPaintProperty(layerId, 'text-color', '#000000');
@@ -214,13 +212,12 @@ export default function NavigatorApp() {
     return () => window.removeEventListener('deviceorientation', handler, true);
   }, []);
 
-  // Геолокация + запись собственного трека
+  // Геолокация
   useEffect(() => {
     if (!('geolocation' in navigator)) return;
     const onPos = (pos) => {
       const p = { lat: pos.coords.latitude, lon: pos.coords.longitude, heading: pos.coords.heading };
       setUserPos(p);
-      // Если навигация запущена — пушим точки в массив нашего будущего кастомного пути!
       if (navStarted) {
         gpsTrackRef.current.push([pos.coords.longitude, pos.coords.latitude]);
       }
@@ -291,7 +288,7 @@ export default function NavigatorApp() {
     }
   }, [userPos, mapReady, following, route, navStarted, compass]);
 
-  // Обрезка линии пройденого пути на экране
+  // Обрезка линии маршрута
   useEffect(() => {
     if (!userPos || !routeGeomRef.current || !navStarted) return;
     const coords = routeGeomRef.current;
@@ -359,7 +356,6 @@ export default function NavigatorApp() {
     destMarkerRef.current = new maplibregl.Marker({ element: el, anchor: 'bottom' })
       .setLngLat([dest.lon, dest.lat]).addTo(map);
 
-    // ПОЕЗДКА ПО СОБСТВЕННОМУ/СОХРАНЕННОМУ МАРШРУТУ
     if (useCustom) {
       const custom = getCustomRoute(dest.label);
       const preferred = getPreferredRoute(dest.label);
@@ -379,7 +375,6 @@ export default function NavigatorApp() {
       }
     }
 
-    // СТАНДАРТНЫЙ МАРШРУТ ЧЕРЕЗ БЭКЕНД-ГЕОКОДЕР
     try {
       const r = await getRoute(userPos.lat, userPos.lon, dest.lat, dest.lon, profile);
       setRoute(r); setCurrentStep(0); setNavStarted(false);
@@ -412,7 +407,6 @@ export default function NavigatorApp() {
     }
   }, [route, userPos, compass]);
 
-  // Навигационная проверка перестроения
   useEffect(() => {
     if (!route || !userPos || !navStarted) return;
     const steps = route.steps || [];
@@ -429,7 +423,6 @@ export default function NavigatorApp() {
     const distOff = distToRouteMeters(userPos.lat, userPos.lon, coords);
     const now = Date.now();
     
-    // Если мы сошли со стандартного маршрута более чем на 40 метров
     if (distOff > 40) {
       if (offRouteSinceRef.current == null) offRouteSinceRef.current = now;
       const elapsed = now - offRouteSinceRef.current;
@@ -466,8 +459,13 @@ export default function NavigatorApp() {
   };
 
   return (
-    <div className="App" style={{ position: 'relative' }}>
-      <div ref={mapContainerRef} className="absolute inset-0" />
+    <div className="App" style={{ position: 'relative', width: '100vw', height: '100vh', overflow: 'hidden' }}>
+      {/* Принудительные инлайновые стили для полного растягивания контейнера карты */}
+      <div 
+        ref={mapContainerRef} 
+        style={{ position: 'absolute', top: 0, bottom: 0, left: 0, right: 0, width: '100%', height: '100%' }} 
+      />
+      
       {mapInstance && routeCoords && (
         <RouteOverlay routeCoords={routeCoords} map={mapInstance} />
       )}
