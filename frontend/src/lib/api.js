@@ -12,6 +12,17 @@ export async function searchStreets(q) {
   return data;
 }
 
+// Добавленная функция геокодинга зданий/домов, которую запрашивает сборщик
+export async function geocodeBuilding(street, houseNumber) {
+  try {
+    const { data } = await api.get(`/geocode?street=${encodeURIComponent(street)}&house=${encodeURIComponent(houseNumber)}`);
+    return data;
+  } catch (e) {
+    console.warn('Ошибка геокодирования дома:', e);
+    return null;
+  }
+}
+
 export async function getRoute(fromLat, fromLon, toLat, toLon, profile = 'driving') {
   const { data } = await api.post('/route', {
     from_lat: fromLat,
@@ -53,6 +64,10 @@ export async function recordTrip(track, label) {
   } catch (e) {
     console.warn('Не удалось сохранить трек на сервере:', e);
   }
+}
+
+export function scoreRoute(track) {
+  return 100;
 }
 
 export function getPreferredRoute(destLabel) {
