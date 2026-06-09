@@ -25,7 +25,7 @@ export default function NavigationPanel({ route, currentStep, destination, onCan
     <>
       {navStarted && step && (
         <div className="absolute top-2 left-2 right-2 z-30">
-          {/* Panou superior - sticlă, blur redus, fără buton X */}
+          {/* Panou superior - glass, fără buton X */}
           <div className="bg-white/20 backdrop-blur-sm border border-white/30 rounded-2xl shadow-lg px-3 py-2.5 flex items-center gap-2.5">
             <div className="w-11 h-11 rounded-xl bg-amber-500/80 flex items-center justify-center text-white shrink-0">
               {React.cloneElement(maneuverIcon(step), { size: 24 })}
@@ -46,7 +46,7 @@ export default function NavigationPanel({ route, currentStep, destination, onCan
         </div>
       )}
 
-      {/* Panou inferior - sticlă */}
+      {/* Panou inferior - glass */}
       <div className="absolute bottom-0 left-0 right-0 z-30 bg-white/20 backdrop-blur-sm border-t border-white/30 rounded-t-2xl px-3 pt-3 pb-[max(env(safe-area-inset-bottom),12px)]">
         {!navStarted ? (
           <>
