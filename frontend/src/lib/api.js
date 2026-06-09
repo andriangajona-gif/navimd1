@@ -1,4 +1,3 @@
-// Stil raster pentru hartă
 export const STYLE_URL = {
   "version": 8,
   "sources": {
@@ -75,11 +74,10 @@ export async function getRoute(startLat, startLon, endLat, endLon, profile = 'dr
   };
 }
 
-// Căutarea originală care mergea direct la map.md - doar maparea obiectelor e corectată
+// Repunem URL-ul tău original care căuta excelent direct din rețea!
 export async function searchStreets(query, city = 'Floresti') {
   if (!query || query.trim().length < 2) return { results: [] };
   try {
-    // URL-ul tău original care căuta bine din prima
     const url = `https://040c1d37-142e-4f81-adfb-c6f7a7dce753@map.md/api/companies/webmap/search_street?q=${encodeURIComponent(query)}&location=${encodeURIComponent(city)}&lang=ro`;
     
     const res = await fetch(url);
@@ -89,16 +87,15 @@ export async function searchStreets(query, city = 'Floresti') {
     const items = Array.isArray(data) ? data : [];
     
     const results = items.map((item, idx) => {
-      // Păstrează numele străzii exact așa cum vine din map.md
       const streetName = item.name || query;
       
-      // CORECTARE: map.md trimite direct masivul "buildings" ca stringuri
+      // CORECTARE STRUCTURĂ: extragem masivul brut numit "buildings" din JSON-ul tău
       let realBuildings = [];
       if (item.buildings && Array.isArray(item.buildings)) {
         realBuildings = item.buildings.map(b => String(b));
       }
 
-      // CORECTARE: Coordonatele sunt în interiorul obiectului "centroid"
+      // CORECTARE STRUCTURĂ: extragem lat și lon din obiectul "centroid" din JSON
       const lat = item.centroid?.lat || 47.893;
       const lon = item.centroid?.lon || 28.301;
 
@@ -109,13 +106,13 @@ export async function searchStreets(query, city = 'Floresti') {
         parent_name: 'Florești',
         count: realBuildings.length, 
         centroid: { lat: parseFloat(lat), lon: parseFloat(lon) },
-        buildings: realBuildings // Acum componenta primește lista corectă și va afișa bulele cu numere
+        buildings: realBuildings // Trimitem masivul corect către interfață ca să apară bulele cu numere
       };
     });
 
     return { results };
   } catch (e) {
-    console.error("Eroare la căutare:", e);
+    console.error("Eroare la procesarea căutării:", e);
     return { results: [] };
   }
 }
