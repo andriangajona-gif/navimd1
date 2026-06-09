@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Search, X, MapPin, Building2, ChevronRight, ArrowLeft, Star, Clock, Plus } from 'lucide-react';
 import { searchStreets, geocodeBuilding } from '../lib/api';
 
-// Corecții manuale pentru Strada 9 Mai (Florești)
+// Corecții manuale pentru Strada 9 Mai
 const MANUAL_COORDS = {
   "21": { lat: 47.90479, lon: 28.29035 },
   "25": { lat: 47.90479, lon: 28.29035 },
@@ -20,15 +20,35 @@ export default function SearchPanel({ onSelectDestination, getCustomRoute, getPr
   const [pendingHasCustom, setPendingHasCustom] = useState(false);
   const [pendingHasPreferred, setPendingHasPreferred] = useState(false);
   const debounceRef = useRef(null);
+  const abortControllerRef = useRef(null);
 
+  // Căutare cu debounce și abort
   useEffect(() => {
-    if (!q || q.length < 2) { setResults([]); return; }
+    const query = q.trim();
+    if (query.length < 2) {
+      setResults([]);
+      setError(null);
+      setLoading(false);
+      return;
+    }
     if (selectedStreet) return;
+
+    // Anulează cererea anterioară
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+
     if (debounceRef.current) clearTimeout(debounceRef.current);
+    setLoading(true);
+    setError(null); // Resetare eroare la fiecare căutare nouă
+
     debounceRef.current = setTimeout(async () => {
-      setLoading(true); setError(null);
       try {
-        const data = await searchStreets(q, 'Florești');
+        const data = await searchStreets(query, 'Florești');
+        if (controller.signal.aborted) return;
+
         let items = (data.results || []).filter(it => it.type === 'street');
         items = items.map(it => {
           if (it.name === "str. 9 Mai") {
@@ -37,11 +57,27 @@ export default function SearchPanel({ onSelectDestination, getCustomRoute, getPr
           return it;
         });
         setResults(items);
+        if (items.length === 0) {
+          setError('Ничего не найдено');
+        } else {
+          setError(null);
+        }
       } catch (e) {
-        setError('Ошибка поиска');
-      } finally { setLoading(false); }
-    }, 300);
-    return () => debounceRef.current && clearTimeout(debounceRef.current);
+        if (!controller.signal.aborted) {
+          console.warn('Search error:', e);
+          setError('Ошибка поиска. Проверьте соединение.');
+        }
+      } finally {
+        if (!controller.signal.aborted) {
+          setLoading(false);
+        }
+      }
+    }, 500); // debounce mai lung
+
+    return () => {
+      clearTimeout(debounceRef.current);
+      controller.abort();
+    };
   }, [q, selectedStreet]);
 
   const handleStreetClick = (street) => {
@@ -124,6 +160,7 @@ export default function SearchPanel({ onSelectDestination, getCustomRoute, getPr
   const reset = () => {
     setQ(''); setResults([]); setSelectedStreet(null);
     setError(null); setPendingDest(null);
+    if (abortControllerRef.current) abortControllerRef.current.abort();
   };
 
   // Fereastra de selecție a rutei (glass, text negru)
@@ -171,7 +208,7 @@ export default function SearchPanel({ onSelectDestination, getCustomRoute, getPr
 
   return (
     <div className="absolute top-3 left-3 right-3 z-30">
-      {/* Bara de căutare glass, text negru */}
+      {/* Bara de căutare */}
       <div className="bg-white/30 backdrop-blur-sm border border-white/40 rounded-xl shadow-md flex items-center px-3 py-2 gap-2">
         {selectedStreet ? (
           <button onClick={() => setSelectedStreet(null)} className="text-black/70" aria-label="back">
