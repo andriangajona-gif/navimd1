@@ -1,9 +1,12 @@
+// Stil raster valid pentru MapLibre
 export const STYLE_URL = {
   "version": 8,
   "sources": {
     "osm-tiles": {
       "type": "raster",
-      "tiles": ["https://tile.openstreetmap.org/{z}/{x}/{y}.png"],
+      "tiles": [
+        "https://tile.openstreetmap.org/{z}/{x}/{y}.png"
+      ],
       "tileSize": 256,
       "attribution": "&copy; OpenStreetMap contributors"
     }
@@ -51,7 +54,7 @@ export function haversine(lat1, lon1, lat2, lon2) {
 export async function getRoute(startLat, startLon, endLat, endLon, profile = 'driving') {
   const url = `https://router.project-osrm.org/route/v1/${profile}/${startLon},${startLat};${endLon},${endLat}?overview=full&geometries=geojson&steps=true`;
   const res = await fetch(url);
-  if (!res.ok) throw new Error('Eroare la solicitarea traseului');
+  if (!res.ok) throw new Error('Eroare de rețea la solicitarea traseului');
   const data = await res.json();
   if (!data.routes || data.routes.length === 0) throw new Error('Traseul nu a fost găsit');
   
@@ -72,35 +75,30 @@ export async function getRoute(startLat, startLon, endLat, endLon, profile = 'dr
   };
 }
 
-// Căutare străzi map.md cu bypass CORS direct
+// Căutare străzi utilizând direct URL-ul map.md funcțional furnizat
 export async function searchStreets(query, city = 'Floresti') {
   if (!query || query.trim().length < 2) return { results: [] };
   try {
-    const targetUrl = `https://040c1d37-142e-4f81-adfb-c6f7a7dce753@map.md/api/companies/webmap/search_street?q=${encodeURIComponent(query)}&location=${encodeURIComponent(city)}&lang=ro`;
+    // Apelăm direct URL-ul exact care funcționează în browser, fără proxy-uri care să îl strice
+    const url = `https://040c1d37-142e-4f81-adfb-c6f7a7dce753@map.md/api/companies/webmap/search_street?q=${encodeURIComponent(query)}&location=${encodeURIComponent(city)}&lang=ro`;
     
-    // Folosim un reverse proxy public ultrarapid ca să distrugem blocarea CORS din browser
-    const corsProxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(targetUrl)}`;
-    
-    const res = await fetch(corsProxyUrl);
+    const res = await fetch(url);
     if (!res.ok) return { results: [] };
     
-    const wrapper = await res.json();
-    // Allorigins întoarce JSON-ul original ca un string în interiorul proprietății .contents
-    const data = JSON.parse(wrapper.contents);
-    
+    const data = await res.json();
     const items = Array.isArray(data) ? data : [];
     
     const results = items.map((item, idx) => {
-      // Extragem direct numele curat primit (ex: "str. Mihai Eminescu")
+      // Preluăm numele exact returnat (ex: "str. Mihai Eminescu")
       const streetName = item.name || query;
       
-      // Extragem masivul real citit direct din structura ta JSON!
+      // Extragem masivul direct de case din obiect ("buildings": ["1", "1/a", "2"...])
       let realBuildings = [];
       if (item.buildings && Array.isArray(item.buildings)) {
         realBuildings = item.buildings.map(b => String(b));
       }
 
-      // Extragem lat și lon din obiectul "centroid" fix ca în JSON-ul tău!
+      // Extragem corect lat și lon din interiorul obiectului "centroid"
       const lat = item.centroid?.lat || 47.893;
       const lon = item.centroid?.lon || 28.301;
 
@@ -111,18 +109,18 @@ export async function searchStreets(query, city = 'Floresti') {
         parent_name: 'Florești',
         count: realBuildings.length, 
         centroid: { lat: parseFloat(lat), lon: parseFloat(lon) },
-        buildings: realBuildings // Casele reale se încarcă acum aici!
+        buildings: realBuildings
       };
     });
 
     return { results };
   } catch (e) {
-    console.error("Eroare la parsarea datelor proxy map.md:", e);
+    console.error("Eroare la obținerea datelor direct de pe map.md:", e);
     return { results: [] };
   }
 }
 
-// Geocodificare clădire selectată din grilă
+// Geocodificare clădire selectată
 export async function geocodeBuilding(streetName, buildingNumber, parentName = 'Florești') {
   try {
     const fullQuery = `${streetName} ${buildingNumber}, ${parentName}`;
@@ -130,24 +128,8 @@ export async function geocodeBuilding(streetName, buildingNumber, parentName = '
     const res = await fetch(url, { headers: { 'Accept-Language': 'ro' } });
     if (!res.ok) return { lat: null, lon: null };
     const data = await res.json();
-    
     if (data && data.length > 0) {
       return { lat: parseFloat(data[0].lat), lon: parseFloat(data[0].lon) };
-    }
-
-    // Fallback inteligent utilizând centrul străzii calculat deja de map.md
-    const streetUrl = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(streetName + ', ' + parentName)}&limit=1`;
-    const streetRes = await fetch(streetUrl);
-    if (streetRes.ok) {
-      const streetData = await streetRes.json();
-      if (streetData && streetData.length > 0) {
-        const num = parseInt(buildingNumber, 10) || 1;
-        const offset = num * 0.00007;
-        return { 
-          lat: parseFloat(streetData[0].lat) + (num % 2 === 0 ? offset : -offset), 
-          lon: parseFloat(streetData[0].lon) + offset 
-        };
-      }
     }
   } catch (e) {}
   return { lat: null, lon: null };
