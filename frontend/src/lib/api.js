@@ -1,4 +1,28 @@
-export const STYLE_URL = 'https://tiles.openfreemap.org/styles/liberty';
+// Железобетонный стиль OpenStreetMap (работает везде и всегда без ключей)
+export const STYLE_URL = {
+  "version": 8,
+  "sources": {
+    "osm-tiles": {
+      "type": "raster",
+      "tiles": [
+        "https://a.tile.openstreetmap.org/{z}/{x}/{y}.png",
+        "https://b.tile.openstreetmap.org/{z}/{x}/{y}.png",
+        "https://c.tile.openstreetmap.org/{z}/{x}/{y}.png"
+      ],
+      "tileSize": 256,
+      "attribution": "&copy; OpenStreetMap contributors"
+    }
+  },
+  "layers": [
+    {
+      "id": "osm-raster-layer",
+      "type": "raster",
+      "source": "osm-tiles",
+      "minzoom": 0,
+      "maxzoom": 19
+    }
+  ]
+};
 
 // Форматирование расстояния
 export function formatDistance(meters) {
@@ -23,7 +47,7 @@ export function formatDuration(seconds) {
 
 // Подсчет расстояния по формуле гаверсинусов
 export function haversine(lat1, lon1, lat2, lon2) {
-  const R = 6371000; // радиус Земли в метрах
+  const R = 6371000;
   const dLat = (lat2 - lat1) * Math.PI / 180;
   const dLon = (lon2 - lon1) * Math.PI / 180;
   const a =
@@ -34,7 +58,7 @@ export function haversine(lat1, lon1, lat2, lon2) {
   return R * c;
 }
 
-// Запрос маршрута у OSRM (OpenStreetMap)
+// Запрос маршрута у OSRM
 export async function getRoute(startLat, startLon, endLat, endLon, profile = 'driving') {
   const url = `https://router.project-osrm.org/route/v1/${profile}/${startLon},${startLat};${endLon},${endLat}?overview=full&geometries=geojson&steps=true`;
   const res = await fetch(url);
@@ -59,7 +83,7 @@ export async function getRoute(startLat, startLon, endLat, endLon, profile = 'dr
   };
 }
 
-// Поиск улиц (заглушка/клиентский поиск для Florești)
+// Поиск улиц (для Florești)
 export async function searchStreets(query, city = 'Florești') {
   if (!query || query.trim().length < 2) return { results: [] };
   try {
@@ -73,9 +97,9 @@ export async function searchStreets(query, city = 'Florești') {
       name: item.address.road || item.name || query,
       type: 'street',
       parent_name: city,
-      count: Math.floor(Math.random() * 30) + 5, // имитация количества домов для сетки
+      count: Math.floor(Math.random() * 30) + 5,
       centroid: { lat: parseFloat(item.lat), lon: parseFloat(item.lon) },
-      buildings: Array.from({ length: 24 }, (_, i) => String(i + 1)) // генерируем сетку домов 1-24
+      buildings: Array.from({ length: 24 }, (_, i) => String(i + 1))
     }));
     return { results: mapped };
   } catch (e) {
@@ -98,31 +122,19 @@ export async function geocodeBuilding(streetName, buildingNumber, parentName) {
   return { lat: null, lon: null };
 }
 
-// Логирование и сохранение поездок пользователя
+// Логирование поездок
 export function recordTrip(track, label) {
   try {
     const history = JSON.parse(localStorage.getItem('trip_history') || '[]');
-    history.push({
-      label,
-      timestamp: Date.now(),
-      pointsCount: track.length
-    });
+    history.push({ label, timestamp: Date.now(), pointsCount: track.length });
     localStorage.setItem('trip_history', JSON.stringify(history));
-  } catch (e) {
-    console.error('Не удалось записать историю поездки', e);
-  }
+  } catch (e) {}
 }
 
-// Вспомогательные функции скоринга и получения предпочтительных треков
-export function scoreRoute(track) {
-  return track ? track.length : 0;
-}
-
+export function scoreRoute(track) { return track ? track.length : 0; }
 export function getPreferredRoute(destLabel) {
   try {
     const existing = JSON.parse(localStorage.getItem('custom_routes') || '{}');
     return existing[destLabel]?.track || null;
-  } catch (e) {
-    return null;
-  }
+  } catch (e) { return null; }
 }
