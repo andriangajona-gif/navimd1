@@ -1,148 +1,138 @@
-export const STYLE_URL = {
-  "version": 8,
-  "sources": {
-    "osm-tiles": {
-      "type": "raster",
-      "tiles": [
-        "https://tile.openstreetmap.org/{z}/{x}/{y}.png"
-      ],
-      "tileSize": 256,
-      "attribution": "&copy; OpenStreetMap contributors"
-    }
-  },
-  "layers": [
-    {
-      "id": "osm-raster-layer",
-      "type": "raster",
-      "source": "osm-tiles",
-      "minzoom": 0,
-      "maxzoom": 19
-    }
-  ]
-};
+import axios from 'axios';
 
-export function formatDistance(meters) {
-  if (!meters) return '0 m';
-  if (meters >= 1000) return `${(meters / 1000).toFixed(1)} km`;
-  return `${Math.round(meters)} m`;
+const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
+export const API = `${BACKEND_URL}/api`;
+
+export const api = axios.create({ baseURL: API, timeout: 15000 });
+
+export async function searchStreets(q, location = 'Florești') {
+  const { data } = await api.get('/search', { params: { q, location, lang: 'ro' } });
+  return data;
 }
 
-export function formatDuration(seconds) {
-  if (!seconds) return '0 min';
-  const mins = Math.round(seconds / 60);
-  if (mins >= 60) {
-    const hrs = Math.floor(mins / 60);
-    const remMins = mins % 60;
-    return remMins > 0 ? `${hrs} ч ${remMins} мин` : `${hrs} ч`;
-  }
-  return `${mins} min`;
+export async function getRoute(fromLat, fromLon, toLat, toLon, profile = 'driving') {
+  const { data } = await api.post('/route', {
+    from_lat: fromLat, from_lon: fromLon, to_lat: toLat, to_lon: toLon, profile,
+  });
+  return data;
+}
+
+export async function geocodeBuilding(street, building, city = 'Florești') {
+  const { data } = await api.get('/geocode', { params: { street, building, city } });
+  return data;
+}
+
+// ===== Система учёта дорог =====
+
+const ROAD_STATS_KEY = 'road_stats';
+const TRIP_HISTORY_KEY = 'trip_history';
+
+// Сохраняем статистику использования дорог
+export function recordTrip(track, destLabel) {
+  try {
+    // Записываем поездку в историю
+    const history = JSON.parse(localStorage.getItem(TRIP_HISTORY_KEY) || '[]');
+    history.push({
+      track,
+      dest: destLabel,
+      timestamp: Date.now(),
+    });
+    // Храним только последние 50 поездок
+    if (history.length > 50) history.splice(0, history.length - 50);
+    localStorage.setItem(TRIP_HISTORY_KEY, JSON.stringify(history));
+
+    // Обновляем статистику сегментов дорог
+    const stats = JSON.parse(localStorage.getItem(ROAD_STATS_KEY) || '{}');
+    for (let i = 0; i < track.length - 1; i++) {
+      const key = segmentKey(track[i], track[i + 1]);
+      stats[key] = (stats[key] || 0) + 1;
+    }
+    localStorage.setItem(ROAD_STATS_KEY, JSON.stringify(stats));
+  } catch (e) {}
+}
+
+// Ключ для сегмента дороги (округляем до 4 знаков ~11м точность)
+function segmentKey(p1, p2) {
+  const r = (n) => Math.round(n * 1000) / 1000;
+  return `${r(p1[1])},${r(p1[0])}-${r(p2[1])},${r(p2[0])}`;
+}
+
+// Считаем насколько маршрут совпадает с любимыми дорогами
+export function scoreRoute(coords) {
+  try {
+    const stats = JSON.parse(localStorage.getItem(ROAD_STATS_KEY) || '{}');
+    if (Object.keys(stats).length === 0) return 0;
+    let score = 0;
+    for (let i = 0; i < coords.length - 1; i++) {
+      const key = segmentKey(coords[i], coords[i + 1]);
+      score += stats[key] || 0;
+    }
+    return score;
+  } catch (e) { return 0; }
+}
+
+// Получаем топ улиц по использованию
+export function getTopRoads() {
+  try {
+    const history = JSON.parse(localStorage.getItem(TRIP_HISTORY_KEY) || '[]');
+    const destCount = {};
+    history.forEach(trip => {
+      destCount[trip.dest] = (destCount[trip.dest] || 0) + 1;
+    });
+    return Object.entries(destCount)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 5)
+      .map(([dest, count]) => ({ dest, count }));
+  } catch (e) { return []; }
+}
+
+// Получаем альтернативный маршрут на основе истории поездок
+export function getPreferredRoute(destLabel) {
+  try {
+    const history = JSON.parse(localStorage.getItem(TRIP_HISTORY_KEY) || '[]');
+    const trips = history.filter(t => t.dest === destLabel);
+    if (trips.length < 2) return null;
+    // Берём самый свежий маршрут к этому адресу
+    trips.sort((a, b) => b.timestamp - a.timestamp);
+    return trips[0].track;
+  } catch (e) { return null; }
+}
+
+export const STYLE_URL = {
+  version: 8,
+  glyphs: 'https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf',
+  sources: {
+    osm: {
+      type: 'raster',
+      tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
+      tileSize: 256,
+      attribution: '© OpenStreetMap contributors',
+    },
+  },
+  layers: [
+    { id: 'osm-tiles', type: 'raster', source: 'osm', minzoom: 0, maxzoom: 19 },
+  ],
+};
+
+export function formatDistance(m) {
+  if (m == null) return '';
+  if (m < 1000) return `${Math.round(m)} м`;
+  return `${(m / 1000).toFixed(m < 10000 ? 1 : 0)} км`;
+}
+
+export function formatDuration(s) {
+  if (s == null) return '';
+  const mins = Math.round(s / 60);
+  if (mins < 60) return `${mins} мин`;
+  const h = Math.floor(mins / 60); const m = mins % 60;
+  return `${h} ч ${m} мин`;
 }
 
 export function haversine(lat1, lon1, lat2, lon2) {
   const R = 6371000;
-  const dLat = (lat2 - lat1) * Math.PI / 180;
-  const dLon = (lon2 - lon1) * Math.PI / 180;
-  const a =
-    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
-    Math.sin(dLon / 2) * Math.sin(dLon / 2);
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-  return R * c;
-}
-
-export async function getRoute(startLat, startLon, endLat, endLon, profile = 'driving') {
-  const url = `https://router.project-osrm.org/route/v1/${profile}/${startLon},${startLat};${endLon},${endLat}?overview=full&geometries=geojson&steps=true`;
-  const res = await fetch(url);
-  if (!res.ok) throw new Error('Eroare la calcularea traseului');
-  const data = await res.json();
-  if (!data.routes || data.routes.length === 0) throw new Error('Traseul nu a fost găsit');
-  
-  const route = data.routes[0];
-  return {
-    distance: route.distance,
-    duration: route.duration,
-    geometry: route.geometry,
-    steps: route.legs[0].steps.map(s => ({
-      distance: s.distance,
-      duration: s.duration,
-      name: s.name || '',
-      instruction: s.maneuver?.instruction || 'Continuați deplasarea',
-      type: s.maneuver?.type || '',
-      modifier: s.maneuver?.modifier || '',
-      location: s.maneuver?.location || null
-    }))
-  };
-}
-
-// RESTAURAT: URL-ul tău original neatins care funcționa perfect din prima
-export async function searchStreets(query, city = 'Floresti') {
-  if (!query || query.trim().length < 2) return { results: [] };
-  try {
-    const url = `https://040c1d37-142e-4f81-adfb-c6f7a7dce753@map.md/api/companies/webmap/search_street?q=${encodeURIComponent(query)}&location=${encodeURIComponent(city)}&lang=ro`;
-    
-    const res = await fetch(url);
-    if (!res.ok) return { results: [] };
-    
-    const data = await res.json();
-    const items = Array.isArray(data) ? data : [];
-    
-    const results = items.map((item, idx) => {
-      const streetName = item.name || query;
-      
-      // Extragerea masivului de clădiri conform JSON-ului brut de la map.md
-      let realBuildings = [];
-      if (item.buildings && Array.isArray(item.buildings)) {
-        realBuildings = item.buildings.map(b => String(b));
-      }
-
-      // Extragerea coordonatelor corecte din obiectul centroid
-      const lat = item.centroid?.lat || 47.893;
-      const lon = item.centroid?.lon || 28.301;
-
-      return {
-        id: item.id || idx,
-        name: streetName,
-        type: 'street',
-        parent_name: 'Florești',
-        count: realBuildings.length, 
-        centroid: { lat: parseFloat(lat), lon: parseFloat(lon) },
-        buildings: realBuildings // Acum componenta vizuală va genera corect grila cu numerele caselor
-      };
-    });
-
-    return { results };
-  } catch (e) {
-    console.error("Eroare rețea căutare:", e);
-    return { results: [] };
-  }
-}
-
-export async function geocodeBuilding(streetName, buildingNumber, parentName = 'Florești') {
-  try {
-    const fullQuery = `${streetName} ${buildingNumber}, ${parentName}`;
-    const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(fullQuery)}&limit=1&accept-language=ro`;
-    const res = await fetch(url, { headers: { 'Accept-Language': 'ro' } });
-    if (!res.ok) return { lat: null, lon: null };
-    const data = await res.json();
-    if (data && data.length > 0) {
-      return { lat: parseFloat(data[0].lat), lon: parseFloat(data[0].lon) };
-    }
-  } catch (e) {}
-  return { lat: null, lon: null };
-}
-
-export function recordTrip(track, label) {
-  try {
-    const history = JSON.parse(localStorage.getItem('trip_history') || '[]');
-    history.push({ label, timestamp: Date.now(), pointsCount: track.length });
-    localStorage.setItem('trip_history', JSON.stringify(history));
-  } catch (e) {}
-}
-
-export function scoreRoute(track) { return track ? track.length : 0; }
-export function getPreferredRoute(destLabel) {
-  try {
-    const existing = JSON.parse(localStorage.getItem('custom_routes') || '{}');
-    return existing[destLabel]?.track || null;
-  } catch (e) { return null; }
+  const toRad = (d) => d * Math.PI / 180;
+  const dLat = toRad(lat2 - lat1);
+  const dLon = toRad(lon2 - lon1);
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(a));
 }
