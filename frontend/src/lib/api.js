@@ -1,4 +1,4 @@
-// Растровый стиль для MapLibre
+// Растровый стиль для MapLibre (Карта работает везде)
 export const STYLE_URL = {
   "version": 8,
   "sources": {
@@ -75,57 +75,49 @@ export async function getRoute(startLat, startLon, endLat, endLon, profile = 'dr
   };
 }
 
-// Поиск улиц через точный API map.md
-export async function searchStreets(query, city = 'Floresti') {
+// Стабильный поиск улиц на румынском языке через официальный Nominatim API
+export async function searchStreets(query, city = 'Florești') {
   if (!query || query.trim().length < 2) return { results: [] };
   try {
-    // Используем предоставленный вами эндпоинт map.md
-    const url = `https://map.md/api/companies/webmap/search_street?q=${encodeURIComponent(query)}&location=${encodeURIComponent(city)}&lang=ro`;
-    
-    const res = await fetch(url);
+    // Запрашиваем данные строго с флагом румынского языка
+    const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query + ' ' + city)}&addressdetails=1&limit=10&accept-language=ro`;
+    const res = await fetch(url, { headers: { 'Accept-Language': 'ro' } });
     if (!res.ok) return { results: [] };
     const data = await res.json();
     
-    // Если API возвращает массив объектов (например: [{name: "Strada Mihai Viteazul", buildings: [...]}])
-    const items = Array.isArray(data) ? data : (data.results || []);
+    // Убираем дубликаты улиц, которые могут приходить из базы данных
+    const seenStreets = new Set();
+    const results = [];
 
-    const mapped = items.map((item, idx) => {
-      // Подстраиваем под поля ответа map.md
-      const streetName = item.name || item.street_name || query;
-      
-      // Вытаскиваем массив реальных домов из ответа map.md, если они там есть,
-      // либо парсим их. Если данных нет, оставляем пустой массив (без фейков).
-      let realBuildings = [];
-      if (item.buildings && Array.isArray(item.buildings)) {
-        realBuildings = item.buildings.map(b => String(b.number || b.housenumber || b));
-      } else if (item.houses && Array.isArray(item.houses)) {
-        realBuildings = item.houses.map(h => String(h.number || h));
+    for (const item of data) {
+      const rawName = item.address.road || item.address.street || item.name;
+      if (!rawName) continue;
+
+      // Если мы эту улицу в румынском названии еще не добавляли
+      if (!seenStreets.has(rawName)) {
+        seenStreets.add(rawName);
+
+        results.push({
+          id: item.place_id,
+          name: rawName,
+          type: 'street',
+          parent_name: city,
+          count: 0, // Убираем фейковое количество домов
+          centroid: { lat: parseFloat(item.lat), lon: parseFloat(item.lon) },
+          buildings: [] // Чистый массив: избавляет от фейков, позволяя искать точный адрес через ввод
+        });
       }
+    }
 
-      // Координаты центра улицы
-      const lat = item.lat || item.latitude || item.centroid?.lat || 47.893;
-      const lon = item.lon || item.longitude || item.centroid?.lon || 28.301;
-
-      return {
-        id: item.id || item.place_id || idx,
-        name: streetName,
-        type: 'street',
-        parent_name: city,
-        count: realBuildings.length,
-        centroid: { lat: parseFloat(lat), lon: parseFloat(lon) },
-        buildings: realBuildings
-      };
-    });
-
-    return { results: mapped };
+    return { results };
   } catch (e) {
-    console.error("Ошибка map.md API:", e);
+    console.error("Ошибка поиска улиц:", e);
     return { results: [] };
   }
 }
 
-// Геокодинг конкретного здания (также через Nominatim в качестве глобального поиска координат по строке)
-export async function geocodeBuilding(streetName, buildingNumber, parentName) {
+// Поиск точных координат конкретного здания (работает, когда пользователь пишет адрес с номером дома)
+export async function geocodeBuilding(streetName, buildingNumber, parentName = 'Florești') {
   try {
     const fullQuery = `${streetName} ${buildingNumber}, ${parentName}`;
     const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(fullQuery)}&limit=1&accept-language=ro`;
