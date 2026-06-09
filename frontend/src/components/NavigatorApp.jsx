@@ -469,10 +469,11 @@ export default function NavigatorApp() {
         />
       )}
 
+      {/* Buton glass pentru recentrare */}
       <div className="absolute right-3 bottom-48 z-30 flex flex-col gap-2">
         <button
           onClick={recenter}
-          className="w-11 h-11 rounded-full bg-white shadow-md flex items-center justify-center text-stone-700 active:scale-95 transition-transform"
+          className="w-11 h-11 rounded-full bg-white/30 backdrop-blur-sm border border-white/40 shadow-md flex items-center justify-center text-black/80 active:scale-95 transition-transform"
         >
           <Locate size={20} />
         </button>
