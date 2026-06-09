@@ -1,4 +1,4 @@
-// Stil raster valid pentru MapLibre
+// Растровый стиль для MapLibre
 export const STYLE_URL = {
   "version": 8,
   "sources": {
@@ -22,28 +22,23 @@ export const STYLE_URL = {
   ]
 };
 
-// Formatare distanță
 export function formatDistance(meters) {
-  if (!meters) return '0 m';
-  if (meters >= 1000) {
-    return `${(meters / 1000).toFixed(1)} km`;
-  }
-  return `${Math.round(meters)} m`;
+  if (!meters) return '0 м';
+  if (meters >= 1000) return `${(meters / 1000).toFixed(1)} км`;
+  return `${Math.round(meters)} м`;
 }
 
-// Formatare durată
 export function formatDuration(seconds) {
-  if (!seconds) return '0 min';
+  if (!seconds) return '0 мин';
   const mins = Math.round(seconds / 60);
   if (mins >= 60) {
     const hrs = Math.floor(mins / 60);
     const remMins = mins % 60;
     return remMins > 0 ? `${hrs} ч ${remMins} мин` : `${hrs} ч`;
   }
-  return `${mins} min`;
+  return `${mins} мин`;
 }
 
-// Calcul distanță prin formula Haversine
 export function haversine(lat1, lon1, lat2, lon2) {
   const R = 6371000;
   const dLat = (lat2 - lat1) * Math.PI / 180;
@@ -56,13 +51,12 @@ export function haversine(lat1, lon1, lat2, lon2) {
   return R * c;
 }
 
-// Solicitare traseu de la OSRM
 export async function getRoute(startLat, startLon, endLat, endLon, profile = 'driving') {
   const url = `https://router.project-osrm.org/route/v1/${profile}/${startLon},${startLat};${endLon},${endLat}?overview=full&geometries=geojson&steps=true`;
   const res = await fetch(url);
-  if (!res.ok) throw new Error('Eroare de rețea la solicitarea traseului');
+  if (!res.ok) throw new Error('Ошибка сети при запросе маршрута');
   const data = await res.json();
-  if (!data.routes || data.routes.length === 0) throw new Error('Traseul nu a fost găsit');
+  if (!data.routes || data.routes.length === 0) throw new Error('Маршрут не найден');
   
   const route = data.routes[0];
   return {
@@ -73,7 +67,7 @@ export async function getRoute(startLat, startLon, endLat, endLon, profile = 'dr
       distance: s.distance,
       duration: s.duration,
       name: s.name || '',
-      instruction: s.maneuver?.instruction || 'Continuați deplasarea',
+      instruction: s.maneuver?.instruction || 'Продолжайте движение',
       type: s.maneuver?.type || '',
       modifier: s.maneuver?.modifier || '',
       location: s.maneuver?.location || null
@@ -81,67 +75,56 @@ export async function getRoute(startLat, startLon, endLat, endLon, profile = 'dr
   };
 }
 
-// Căutare străzi cu extragerea numerelor reale de case
-export async function searchStreets(query, city = 'Florești') {
+// Поиск улиц через точный API map.md
+export async function searchStreets(query, city = 'Floresti') {
   if (!query || query.trim().length < 2) return { results: [] };
   try {
-    const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query + ' ' + city)}&addressdetails=1&limit=10&accept-language=ro`;
-    const res = await fetch(url, { headers: { 'Accept-Language': 'ro' } });
+    // Используем предоставленный вами эндпоинт map.md
+    const url = `https://map.md/api/companies/webmap/search_street?q=${encodeURIComponent(query)}&location=${encodeURIComponent(city)}&lang=ro`;
+    
+    const res = await fetch(url);
     if (!res.ok) return { results: [] };
     const data = await res.json();
     
-    // Generăm procesarea pentru fiecare stradă găsită
-    const promises = data.map(async (item, idx) => {
-      const rawName = item.address.road || item.address.street || item.name || query;
+    // Если API возвращает массив объектов (например: [{name: "Strada Mihai Viteazul", buildings: [...]}])
+    const items = Array.isArray(data) ? data : (data.results || []);
+
+    const mapped = items.map((item, idx) => {
+      // Подстраиваем под поля ответа map.md
+      const streetName = item.name || item.street_name || query;
       
-      let realHouseNumbers = [];
-      try {
-        // Interogăm suplimentar OSM pentru a găsi toate clădirile înregistrate pe această stradă specifică
-        const housesUrl = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(rawName + ', ' + city)}&addressdetails=1&limit=50&accept-language=ro`;
-        const housesRes = await fetch(housesUrl, { headers: { 'Accept-Language': 'ro' } });
-        if (housesRes.ok) {
-          const housesData = await housesRes.json();
-          // Extragem numerele caselor (housenumber) care nu sunt goale
-          const numbers = housesData
-            .map(h => h.address?.house_number || h.address?.housenumber)
-            .filter(num => num !== undefined && num !== null && num !== '');
-          
-          // Eliminăm duplicatele și le sortăm numeric sau alfabetic
-          if (numbers.length > 0) {
-            realHouseNumbers = [...new Set(numbers)].sort((a, b) => {
-              return parseInt(a, 10) - parseInt(b, 10) || a.localeCompare(b);
-            });
-          }
-        }
-      } catch (e) {
-        console.warn("Eroare la extragerea caselor reale:", e);
+      // Вытаскиваем массив реальных домов из ответа map.md, если они там есть,
+      // либо парсим их. Если данных нет, оставляем пустой массив (без фейков).
+      let realBuildings = [];
+      if (item.buildings && Array.isArray(item.buildings)) {
+        realBuildings = item.buildings.map(b => String(b.number || b.housenumber || b));
+      } else if (item.houses && Array.isArray(item.houses)) {
+        realBuildings = item.houses.map(h => String(h.number || h));
       }
 
-      // Rezervă (fallback): Dacă pe OSM strada nu are salvate numere de casă individuale,
-      // generăm o listă extinsă mult mai completă (de la 1 până la 90) pentru a acoperi toate casele posibile.
-      if (realHouseNumbers.length === 0) {
-        realHouseNumbers = Array.from({ length: 90 }, (_, i) => String(i + 1));
-      }
+      // Координаты центра улицы
+      const lat = item.lat || item.latitude || item.centroid?.lat || 47.893;
+      const lon = item.lon || item.longitude || item.centroid?.lon || 28.301;
 
       return {
-        id: item.place_id || idx,
-        name: rawName,
+        id: item.id || item.place_id || idx,
+        name: streetName,
         type: 'street',
         parent_name: city,
-        count: realHouseNumbers.length,
-        centroid: { lat: parseFloat(item.lat), lon: parseFloat(item.lon) },
-        buildings: realHouseNumbers
+        count: realBuildings.length,
+        centroid: { lat: parseFloat(lat), lon: parseFloat(lon) },
+        buildings: realBuildings
       };
     });
 
-    const mapped = await Promise.all(promises);
     return { results: mapped };
   } catch (e) {
+    console.error("Ошибка map.md API:", e);
     return { results: [] };
   }
 }
 
-// Geocodificare clădire specifică
+// Геокодинг конкретного здания (также через Nominatim в качестве глобального поиска координат по строке)
 export async function geocodeBuilding(streetName, buildingNumber, parentName) {
   try {
     const fullQuery = `${streetName} ${buildingNumber}, ${parentName}`;
@@ -156,7 +139,6 @@ export async function geocodeBuilding(streetName, buildingNumber, parentName) {
   return { lat: null, lon: null };
 }
 
-// Salvare istoric călătorii
 export function recordTrip(track, label) {
   try {
     const history = JSON.parse(localStorage.getItem('trip_history') || '[]');
