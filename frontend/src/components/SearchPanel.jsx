@@ -30,6 +30,7 @@ export default function SearchPanel({ onSelectDestination, getCustomRoute, getPr
       try {
         const data = await searchStreets(q, 'Florești');
         let items = (data.results || []).filter(it => it.type === 'street');
+        // Corectăm numele străzii "str. 9 Mai" în "Strada 9 Mai"
         items = items.map(it => {
           if (it.name === "str. 9 Mai") {
             return { ...it, name: "Strada 9 Mai" };
@@ -126,10 +127,10 @@ export default function SearchPanel({ onSelectDestination, getCustomRoute, getPr
     setError(null); setPendingDest(null);
   };
 
-  // Fereastra de selecție a rutei (sticlă)
+  // Fereastra de selecție a rutei (glass)
   if (pendingDest) {
     return (
-      <div className="absolute inset-0 z-50 bg-black/30 backdrop-blur-[2px] flex items-end">
+      <div className="absolute inset-0 z-50 bg-black/30 backdrop-blur-sm flex items-end">
         <div className="bg-white/20 backdrop-blur-sm border-t border-white/30 rounded-t-2xl p-5 w-full shadow-xl animate-in slide-in-from-bottom duration-200">
           <div className="text-[17px] font-bold text-white drop-shadow-md mb-1">Маршрут к дому</div>
           <div className="text-[14px] text-white/80 font-semibold mb-4 truncate bg-white/10 rounded-lg p-2.5 border border-white/20">
@@ -171,7 +172,7 @@ export default function SearchPanel({ onSelectDestination, getCustomRoute, getPr
 
   return (
     <div className="absolute top-3 left-3 right-3 z-30">
-      {/* Bara de căutare - sticlă */}
+      {/* Bara de căutare glass */}
       <div className="bg-white/20 backdrop-blur-sm border border-white/30 rounded-xl shadow-md flex items-center px-3 py-2 gap-2">
         {selectedStreet ? (
           <button onClick={() => setSelectedStreet(null)} className="text-white/80" aria-label="back">
