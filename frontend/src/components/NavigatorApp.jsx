@@ -1,6 +1,5 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import maplibregl from 'maplibre-gl';
-import 'maplibre-gl/dist/maplibre-gl.css';
 import { STYLE_URL, getRoute, formatDistance, formatDuration, haversine, recordTrip, scoreRoute, getPreferredRoute } from '../lib/api';
 import SearchPanel from './SearchPanel';
 import NavigationPanel from './NavigationPanel';
@@ -141,42 +140,67 @@ export default function NavigatorApp() {
   const lastReroutedAtRef = useRef(0);
   const offRouteSinceRef = useRef(null);
 
+  // Инициализация карты в ВЕКТОРНОМ режиме с огромными номерами домов
   useEffect(() => {
     if (mapRef.current) return;
-    
     const map = new maplibregl.Map({
       container: mapContainerRef.current,
-      style: STYLE_URL, 
+      style: STYLE_URL, // Векторная ссылка
       center: DEFAULT_CENTER,
       zoom: 12,
-      minZoom: 4,
-      maxZoom: 19,
+      minZoom: 6,
+      maxZoom: 18,
       attributionControl: false,
       pitchWithRotate: true,
       dragRotate: true,
-      maxBounds: [[24.5, 45.0], [31.5, 49.0]]
+      maxBounds: [[24.5, 45.0], [31.5, 49.0]],
     });
 
     map.on('load', () => { 
       setMapReady(true); 
       setMapInstance(map);
-      
-      // Принудительный ресайз для мобилок
-      setTimeout(() => { map.resize(); }, 300);
+
+      // === КАСТОМИЗАЦИЯ НОМЕРОВ ДОМОВ ===
+      try {
+        const layers = map.getStyle().layers;
+        const houseLayers = layers.filter(l => 
+          l.id.includes('house') || 
+          l.id.includes('building-number') || 
+          l.id.includes('address')
+        );
+
+        houseLayers.forEach(layer => {
+          const layerId = layer.id;
+          // Делаем номера домов огромными на зумах 16-18
+          map.setLayoutProperty(layerId, 'text-size', [
+            'interpolate', ['linear'], ['zoom'],
+            14, 11,
+            16, 22,
+            17, 32,
+            18, 42
+          ]);
+          // Принудительный Bold (жирный шрифт)
+          map.setLayoutProperty(layerId, 'text-font', ["Metropolis Bold"]);
+          // Поверх всех остальных объектов
+          map.setLayoutProperty(layerId, 'text-allow-overlap', true);
+          map.setLayoutProperty(layerId, 'text-ignore-placement', true);
+          // Толстый контрастный контур
+          map.setPaintProperty(layerId, 'text-halo-width', 3.5);
+          map.setPaintProperty(layerId, 'text-halo-color', '#ffffff');
+          map.setPaintProperty(layerId, 'text-color', '#000000');
+        });
+      } catch (e) {
+        console.warn('Ошибка стилизации домов:', e);
+      }
     });
 
     map.on('error', (e) => console.warn('map err', e?.error?.message || e));
     map.on('dragstart', () => setFollowing(false));
     mapRef.current = map;
-    
-    return () => { 
-      if (mapRef.current) {
-        mapRef.current.remove(); 
-        mapRef.current = null; 
-      }
-    };
+    return () => { map.remove(); mapRef.current = null; };
   }, []);
 
+  // Компас
   useEffect(() => {
     const handler = (e) => {
       const deg = e.webkitCompassHeading ?? e.alpha;
@@ -190,11 +214,13 @@ export default function NavigatorApp() {
     return () => window.removeEventListener('deviceorientation', handler, true);
   }, []);
 
+  // Геолокация + запись собственного трека
   useEffect(() => {
     if (!('geolocation' in navigator)) return;
     const onPos = (pos) => {
       const p = { lat: pos.coords.latitude, lon: pos.coords.longitude, heading: pos.coords.heading };
       setUserPos(p);
+      // Если навигация запущена — пушим точки в массив нашего будущего кастомного пути!
       if (navStarted) {
         gpsTrackRef.current.push([pos.coords.longitude, pos.coords.latitude]);
       }
@@ -210,6 +236,7 @@ export default function NavigatorApp() {
     return () => { if (watchIdRef.current) navigator.geolocation.clearWatch(watchIdRef.current); };
   }, [navStarted]);
 
+  // Блокировка экрана (WakeLock)
   useEffect(() => {
     const wakeLockManager = wakeLockManagerRef.current;
     if (navStarted) wakeLockManager.acquire();
@@ -226,6 +253,7 @@ export default function NavigatorApp() {
     return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
   }, [navStarted]);
 
+  // Ведение по маркеру и вращение
   useEffect(() => {
     if (!mapReady || !userPos) return;
     const map = mapRef.current;
@@ -248,7 +276,7 @@ export default function NavigatorApp() {
         center: [userPos.lon, userPos.lat], 
         zoom: 18,
         bearing: isNaN(bearing) ? 0 : bearing,
-        pitch: 60, 
+        pitch: 70, 
         duration: 500,
         padding: { top: 100, bottom: 450, left: 0, right: 0 }, 
       });
@@ -263,6 +291,7 @@ export default function NavigatorApp() {
     }
   }, [userPos, mapReady, following, route, navStarted, compass]);
 
+  // Обрезка линии пройденого пути на экране
   useEffect(() => {
     if (!userPos || !routeGeomRef.current || !navStarted) return;
     const coords = routeGeomRef.current;
@@ -330,6 +359,7 @@ export default function NavigatorApp() {
     destMarkerRef.current = new maplibregl.Marker({ element: el, anchor: 'bottom' })
       .setLngLat([dest.lon, dest.lat]).addTo(map);
 
+    // ПОЕЗДКА ПО СОБСТВЕННОМУ/СОХРАНЕННОМУ МАРШРУТУ
     if (useCustom) {
       const custom = getCustomRoute(dest.label);
       const preferred = getPreferredRoute(dest.label);
@@ -349,6 +379,7 @@ export default function NavigatorApp() {
       }
     }
 
+    // СТАНДАРТНЫЙ МАРШРУТ ЧЕРЕЗ БЭКЕНД-ГЕОКОДЕР
     try {
       const r = await getRoute(userPos.lat, userPos.lon, dest.lat, dest.lon, profile);
       setRoute(r); setCurrentStep(0); setNavStarted(false);
@@ -374,13 +405,14 @@ export default function NavigatorApp() {
         center: [userPos.lon, userPos.lat], 
         zoom: 18,
         bearing: compass ?? userPos.heading ?? 0,
-        pitch: 60,
+        pitch: 70,
         duration: 900,
         padding: { top: 100, bottom: 450, left: 0, right: 0 },
       });
     }
   }, [route, userPos, compass]);
 
+  // Навигационная проверка перестроения
   useEffect(() => {
     if (!route || !userPos || !navStarted) return;
     const steps = route.steps || [];
@@ -397,6 +429,7 @@ export default function NavigatorApp() {
     const distOff = distToRouteMeters(userPos.lat, userPos.lon, coords);
     const now = Date.now();
     
+    // Если мы сошли со стандартного маршрута более чем на 40 метров
     if (distOff > 40) {
       if (offRouteSinceRef.current == null) offRouteSinceRef.current = now;
       const elapsed = now - offRouteSinceRef.current;
@@ -433,12 +466,8 @@ export default function NavigatorApp() {
   };
 
   return (
-    <div className="App" style={{ position: 'relative', width: '100vw', height: '100vh', overflow: 'hidden' }}>
-      <div 
-        ref={mapContainerRef} 
-        style={{ position: 'absolute', top: 0, bottom: 0, left: 0, right: 0, width: '100%', height: '100%' }} 
-      />
-      
+    <div className="App" style={{ position: 'relative' }}>
+      <div ref={mapContainerRef} className="absolute inset-0" />
       {mapInstance && routeCoords && (
         <RouteOverlay routeCoords={routeCoords} map={mapInstance} />
       )}
