@@ -74,7 +74,7 @@ export async function getRoute(startLat, startLon, endLat, endLon, profile = 'dr
   };
 }
 
-// Repunem URL-ul tău original care căuta excelent direct din rețea!
+// RESTAURAT: URL-ul tău original neatins care funcționa perfect din prima
 export async function searchStreets(query, city = 'Floresti') {
   if (!query || query.trim().length < 2) return { results: [] };
   try {
@@ -89,13 +89,13 @@ export async function searchStreets(query, city = 'Floresti') {
     const results = items.map((item, idx) => {
       const streetName = item.name || query;
       
-      // CORECTARE STRUCTURĂ: extragem masivul brut numit "buildings" din JSON-ul tău
+      // Extragerea masivului de clădiri conform JSON-ului brut de la map.md
       let realBuildings = [];
       if (item.buildings && Array.isArray(item.buildings)) {
         realBuildings = item.buildings.map(b => String(b));
       }
 
-      // CORECTARE STRUCTURĂ: extragem lat și lon din obiectul "centroid" din JSON
+      // Extragerea coordonatelor corecte din obiectul centroid
       const lat = item.centroid?.lat || 47.893;
       const lon = item.centroid?.lon || 28.301;
 
@@ -106,13 +106,13 @@ export async function searchStreets(query, city = 'Floresti') {
         parent_name: 'Florești',
         count: realBuildings.length, 
         centroid: { lat: parseFloat(lat), lon: parseFloat(lon) },
-        buildings: realBuildings // Trimitem masivul corect către interfață ca să apară bulele cu numere
+        buildings: realBuildings // Acum componenta vizuală va genera corect grila cu numerele caselor
       };
     });
 
     return { results };
   } catch (e) {
-    console.error("Eroare la procesarea căutării:", e);
+    console.error("Eroare rețea căutare:", e);
     return { results: [] };
   }
 }
