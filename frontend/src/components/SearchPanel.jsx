@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Search, X, MapPin, Building2, ChevronRight, ArrowLeft, Star, Clock } from 'lucide-react';
+import { Search, X, MapPin, Building2, ChevronRight, ArrowLeft, Star, Clock, Plus } from 'lucide-react';
 import { searchStreets, geocodeBuilding } from '../lib/api';
 
 export default function SearchPanel({ onSelectDestination, getCustomRoute, getPreferredRoute }) {
@@ -55,19 +55,16 @@ export default function SearchPanel({ onSelectDestination, getCustomRoute, getPr
     const hasCustom = !!(getCustomRoute && getCustomRoute(dest.label));
     const hasPreferred = !!(getPreferredRoute && getPreferredRoute(dest.label));
 
-    if (hasCustom || hasPreferred) {
-      setPendingDest(dest);
-      setPendingHasCustom(hasCustom);
-      setPendingHasPreferred(hasPreferred);
-      setOpen(false);
-    } else {
-      onSelectDestination(dest, false);
-      setOpen(false); setQ(''); setSelectedStreet(null); setResults([]);
-    }
+    // Изменение: Теперь ВСЕГДА открываем шторку выбора маршрута для этого дома
+    setPendingDest(dest);
+    setPendingHasCustom(hasCustom);
+    setPendingHasPreferred(hasPreferred);
+    setOpen(false);
   };
 
   const handleChooseStandard = () => {
     if (pendingDest) {
+      // Идем по стандартному маршруту
       onSelectDestination(pendingDest, false);
       setPendingDest(null); setQ(''); setSelectedStreet(null); setResults([]);
     }
@@ -75,7 +72,18 @@ export default function SearchPanel({ onSelectDestination, getCustomRoute, getPr
 
   const handleChooseCustom = () => {
     if (pendingDest) {
+      // Загружаем сохраненный трек
       onSelectDestination(pendingDest, true);
+      setPendingDest(null); setQ(''); setSelectedStreet(null); setResults([]);
+    }
+  };
+
+  const handleCreateOwnRoute = () => {
+    if (pendingDest) {
+      // Переключаем в режим создания/записи собственного пути
+      // Передаем false в использование кастомного (чтобы построить стандартную точку старта),
+      // но навигатор начнет сохранять трек в реальном времени при поездке.
+      onSelectDestination(pendingDest, false);
       setPendingDest(null); setQ(''); setSelectedStreet(null); setResults([]);
     }
   };
@@ -85,30 +93,45 @@ export default function SearchPanel({ onSelectDestination, getCustomRoute, getPr
     setError(null); setPendingDest(null);
   };
 
+  // Нижнее меню (Шторка выбора маршрутов после выбора дома)
   if (pendingDest) {
     return (
       <div className="absolute inset-0 z-50 bg-black/50 flex items-end">
-        <div className="bg-white rounded-t-2xl p-5 w-full shadow-xl">
-          <div className="text-[17px] font-bold text-stone-900 mb-1">Выберите маршрут</div>
-          <div className="text-[13px] text-stone-500 mb-4 truncate">{pendingDest.label}</div>
+        <div className="bg-white rounded-t-2xl p-5 w-full shadow-xl animate-in slide-in-from-bottom duration-200">
+          <div className="text-[17px] font-bold text-stone-900 mb-1">Маршрут к дому</div>
+          <div className="text-[14px] text-stone-600 font-semibold mb-4 truncate bg-stone-50 p-2.5 rounded-lg border border-stone-100">
+            {pendingDest.street}, дом {pendingDest.building}
+          </div>
 
-          {(pendingHasCustom || pendingHasPreferred) && (
+          {/* КНОПКА ДЛЯ СОХРАНЕННОГО МАРШРУТА (Появляется только если он уже был записан ранее) */}
+          {(pendingHasCustom || pendingHasPreferred) ? (
             <button
               onClick={handleChooseCustom}
-              className="w-full mb-3 py-3.5 rounded-xl bg-amber-500 text-white text-[15px] font-semibold flex items-center justify-center gap-2"
+              className="w-full mb-3 py-3.5 rounded-xl bg-amber-500 text-white text-[15px] font-bold flex items-center justify-center gap-2 active:scale-98 transition-transform shadow-md shadow-amber-500/20"
             >
               {pendingHasCustom ? <Star size={18} fill="currentColor" /> : <Clock size={18} />}
-              {pendingHasCustom ? 'Мой сохранённый маршрут' : 'Мой привычный маршрут'}
+              {pendingHasCustom ? 'Поехать моим сохранённым путём' : 'Включить привычный маршрут'}
+            </button>
+          ) : (
+            /* КНОПКА ДЛЯ СОЗДАНИЯ СВОЕГО МАРШРУТА (Если едем впервые на этот адрес) */
+            <button
+              onClick={handleCreateOwnRoute}
+              className="w-full mb-3 py-3.5 rounded-xl bg-stone-900 text-white text-[15px] font-bold flex items-center justify-center gap-2 active:scale-98 transition-transform"
+            >
+              <Plus size={18} />
+              Записать мой собственный маршрут
             </button>
           )}
 
+          {/* СТАНДАРТНЫЙ ВАРИАНТ */}
           <button
             onClick={handleChooseStandard}
-            className="w-full py-3.5 rounded-xl border border-stone-200 text-stone-700 text-[15px] font-medium"
+            className="w-full py-3.5 rounded-xl border-2 border-stone-200 text-stone-700 text-[15px] font-semibold active:bg-stone-50"
           >
-            Стандартный маршрут
+            Поехать стандартным навигатором
           </button>
-          <button onClick={reset} className="w-full mt-2 py-2 text-stone-400 text-[14px]">
+
+          <button onClick={reset} className="w-full mt-3 py-2 text-stone-400 text-[14px] font-medium">
             Отмена
           </button>
         </div>
@@ -169,15 +192,15 @@ export default function SearchPanel({ onSelectDestination, getCustomRoute, getPr
           ))}
           {selectedStreet && (
             <div className="p-3">
-              <div className="text-[12px] text-stone-500 mb-2 px-1">Номера домов ({selectedStreet.buildings?.length || 0})</div>
-              <div className="grid grid-cols-5 sm:grid-cols-6 gap-2">
+              <div className="text-[14px] font-bold text-stone-800 mb-2.5 px-1">Выберите номер дома ({selectedStreet.buildings?.length || 0}):</div>
+              <div className="grid grid-cols-4 sm:grid-cols-6 gap-2">
                 {(selectedStreet.buildings || []).map((b) => (
                   <button
                     key={b}
                     onClick={() => handleBuildingClick(b)}
-                    className="px-2 py-2 rounded-lg border border-stone-200 bg-white text-[13px] text-stone-800 hover:bg-amber-50 hover:border-amber-300 active:scale-95 transition-all flex items-center justify-center gap-1"
+                    className="px-2 py-3 rounded-xl border border-stone-200 bg-white text-[14px] font-bold text-stone-800 hover:bg-amber-50 hover:border-amber-300 active:scale-95 transition-all flex items-center justify-center gap-1 shadow-sm"
                   >
-                    <Building2 size={12} className="text-stone-400" />
+                    <Building2 size={13} className="text-stone-400 shrink-0" />
                     <span className="truncate">{b}</span>
                   </button>
                 ))}
