@@ -149,51 +149,20 @@ export default function NavigatorApp() {
       style: STYLE_URL, 
       center: DEFAULT_CENTER,
       zoom: 12,
-      minZoom: 6,
-      maxZoom: 18,
+      minZoom: 4,
+      maxZoom: 19,
       attributionControl: false,
       pitchWithRotate: true,
       dragRotate: true,
-      maxBounds: [[24.5, 45.0], [31.5, 49.0]],
-      transformRequest: (url) => {
-        return { url };
-      }
+      maxBounds: [[24.5, 45.0], [31.5, 49.0]]
     });
 
     map.on('load', () => { 
       setMapReady(true); 
       setMapInstance(map);
-
-      // Важное исправление белого экрана: форсируем перерасчет контейнера на мобильных
+      
+      // Принудительный ресайз для мобилок
       setTimeout(() => { map.resize(); }, 300);
-
-      try {
-        const layers = map.getStyle().layers;
-        const houseLayers = layers.filter(l => 
-          l.id.includes('house') || 
-          l.id.includes('building-number') || 
-          l.id.includes('address')
-        );
-
-        houseLayers.forEach(layer => {
-          const layerId = layer.id;
-          map.setLayoutProperty(layerId, 'text-size', [
-            'interpolate', ['linear'], ['zoom'],
-            14, 11,
-            16, 22,
-            17, 32,
-            18, 42
-          ]);
-          map.setLayoutProperty(layerId, 'text-font', ["Metropolis Bold"]);
-          map.setLayoutProperty(layerId, 'text-allow-overlap', true);
-          map.setLayoutProperty(layerId, 'text-ignore-placement', true);
-          map.setPaintProperty(layerId, 'text-halo-width', 3.5);
-          map.setPaintProperty(layerId, 'text-halo-color', '#ffffff');
-          map.setPaintProperty(layerId, 'text-color', '#000000');
-        });
-      } catch (e) {
-        console.warn('Ошибка стилизации домов:', e);
-      }
     });
 
     map.on('error', (e) => console.warn('map err', e?.error?.message || e));
@@ -279,7 +248,7 @@ export default function NavigatorApp() {
         center: [userPos.lon, userPos.lat], 
         zoom: 18,
         bearing: isNaN(bearing) ? 0 : bearing,
-        pitch: 70, 
+        pitch: 60, 
         duration: 500,
         padding: { top: 100, bottom: 450, left: 0, right: 0 }, 
       });
@@ -405,7 +374,7 @@ export default function NavigatorApp() {
         center: [userPos.lon, userPos.lat], 
         zoom: 18,
         bearing: compass ?? userPos.heading ?? 0,
-        pitch: 70,
+        pitch: 60,
         duration: 900,
         padding: { top: 100, bottom: 450, left: 0, right: 0 },
       });
