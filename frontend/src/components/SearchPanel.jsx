@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Search, X, MapPin, Building2, ChevronRight, ArrowLeft, Star, Clock } from 'lucide-react';
+import { Search, X, MapPin, Building2, ChevronRight, ArrowLeft } from 'lucide-react';
 import { searchStreets, geocodeBuilding } from '../lib/api';
 
 // Corecții manuale pentru Strada 9 Mai
@@ -9,7 +9,7 @@ const MANUAL_COORDS = {
   "67": { lat: 47.90616, lon: 28.28910 },
 };
 
-export default function SearchPanel({ onSelectDestination, getCustomRoute, getPreferredRoute }) {
+export default function SearchPanel({ onSelectDestination }) { // am eliminat getCustomRoute, getPreferredRoute
   const [q, setQ] = useState('');
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -17,8 +17,6 @@ export default function SearchPanel({ onSelectDestination, getCustomRoute, getPr
   const [selectedStreet, setSelectedStreet] = useState(null);
   const [error, setError] = useState(null);
   const [pendingDest, setPendingDest] = useState(null);
-  const [pendingHasCustom, setPendingHasCustom] = useState(false);
-  const [pendingHasPreferred, setPendingHasPreferred] = useState(false);
   const debounceRef = useRef(null);
   const abortRef = useRef(null);
 
@@ -111,25 +109,13 @@ export default function SearchPanel({ onSelectDestination, getCustomRoute, getPr
       city: selectedStreet.parent_name,
     };
 
-    const hasCustom = !!(getCustomRoute && getCustomRoute(dest.label));
-    const hasPreferred = !!(getPreferredRoute && getPreferredRoute(dest.label));
-
     setPendingDest(dest);
-    setPendingHasCustom(hasCustom);
-    setPendingHasPreferred(hasPreferred);
     setOpen(false);
   };
 
   const handleChooseStandard = () => {
     if (pendingDest) {
-      onSelectDestination(pendingDest, false);
-      setPendingDest(null); setQ(''); setSelectedStreet(null); setResults([]);
-    }
-  };
-
-  const handleChooseCustom = () => {
-    if (pendingDest) {
-      onSelectDestination(pendingDest, true);
+      onSelectDestination(pendingDest, false); // mereu standard, fără custom
       setPendingDest(null); setQ(''); setSelectedStreet(null); setResults([]);
     }
   };
@@ -140,19 +126,13 @@ export default function SearchPanel({ onSelectDestination, getCustomRoute, getPr
     setError(null); setPendingDest(null);
   };
 
-  // Fereastra de selecție a rutei – fără butonul "Записать мой собственный маршрут"
+  // Fereastra de selecție a rutei – doar standard și anulare
   if (pendingDest) {
     return (
       <div className="absolute inset-0 z-50 bg-black/30 backdrop-blur-sm flex items-end">
         <div className="bg-white/30 backdrop-blur-sm border-t border-white/40 rounded-t-2xl p-5 w-full">
           <div className="text-[17px] font-bold text-black mb-1">Маршрут к дому</div>
           <div className="text-[14px] text-black/80 mb-4 bg-white/30 p-2.5 rounded-lg">{pendingDest.street}, дом {pendingDest.building}</div>
-          {(pendingHasCustom || pendingHasPreferred) ? (
-            <button onClick={handleChooseCustom} className="w-full mb-3 py-3.5 rounded-xl bg-amber-500 text-white font-bold flex justify-center gap-2">
-              {pendingHasCustom ? <Star size={18} fill="currentColor" /> : <Clock size={18} />}
-              {pendingHasCustom ? 'Поехать моим сохранённым путём' : 'Включить привычный маршрут'}
-            </button>
-          ) : null}
           <button onClick={handleChooseStandard} className="w-full py-3.5 rounded-xl bg-white/40 border border-white/50 text-black font-semibold">
             Поехать стандартным навигатором
           </button>
