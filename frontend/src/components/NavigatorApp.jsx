@@ -3,6 +3,7 @@ import maplibregl from 'maplibre-gl';
 import { STYLE_URL, getRoute, formatDistance, formatDuration, haversine, recordTrip, scoreRoute, getPreferredRoute } from '../lib/api';
 import SearchPanel from './SearchPanel';
 import NavigationPanel from './NavigationPanel';
+import DrawRouteModal from './DrawRouteModal';
 import { Locate } from 'lucide-react';
 
 function calcBearing(lat1, lon1, lat2, lon2) {
@@ -139,6 +140,10 @@ export default function NavigatorApp() {
   const [arrivedDest, setArrivedDest] = useState(null);
   const lastReroutedAtRef = useRef(0);
   const offRouteSinceRef = useRef(null);
+
+  // Stări pentru desenarea manuală a rutei
+  const [showDrawModal, setShowDrawModal] = useState(false);
+  const [drawDestination, setDrawDestination] = useState(null);
 
   // Inițializare hartă
   useEffect(() => {
@@ -338,6 +343,28 @@ export default function NavigatorApp() {
     }
   }, [navStarted, destination, resetAll]);
 
+  // Funcție pentru desenarea unei noi rute (pentru scuter)
+  const handleStartDrawing = (dest) => {
+    setDrawDestination(dest);
+    setShowDrawModal(true);
+  };
+
+  // Salvează ruta desenată manual în localStorage
+  const handleSaveDrawnRoute = (points) => {
+    if (!drawDestination) return;
+    const customRoutes = JSON.parse(localStorage.getItem('custom_routes') || '{}');
+    customRoutes[drawDestination.label] = {
+      track: points,
+      savedAt: Date.now(),
+      type: 'drawn'
+    };
+    localStorage.setItem('custom_routes', JSON.stringify(customRoutes));
+    alert('Ruta ta a fost salvată!');
+    setShowDrawModal(false);
+    setDrawDestination(null);
+  };
+
+  // Selectarea destinației (folosește ruta standard sau cea desenată)
   const handleSelectDestination = useCallback(async (dest, useCustom = false) => {
     setError(null);
     if (!userPos) { setError('Aștept semnal GPS.'); return; }
@@ -359,7 +386,7 @@ export default function NavigatorApp() {
         const fakeRoute = {
           distance: 0, duration: 0,
           geometry: { type: 'LineString', coordinates: track },
-          steps: [{ distance: 0, duration: 0, name: '', instruction: 'Urmează traseul tău personal', type: 'depart', modifier: '', location: track[0] }]
+          steps: [{ distance: 0, duration: 0, name: '', instruction: 'Urmează ruta ta personală', type: 'depart', modifier: '', location: track[0] }]
         };
         setRoute(fakeRoute); setCurrentStep(0); setNavStarted(false);
         drawRoute(fakeRoute.geometry);
@@ -370,6 +397,7 @@ export default function NavigatorApp() {
       }
     }
 
+    // Ruta standard (OSRM)
     try {
       const r = await getRoute(userPos.lat, userPos.lon, dest.lat, dest.lon, profile);
       setRoute(r); setCurrentStep(0); setNavStarted(false);
@@ -402,7 +430,7 @@ export default function NavigatorApp() {
     }
   }, [route, userPos, compass]);
 
-  // Monitorizare abatere rută
+  // Monitorizare abatere de la rută
   useEffect(() => {
     if (!route || !userPos || !navStarted) return;
     const steps = route.steps || [];
@@ -464,10 +492,13 @@ export default function NavigatorApp() {
         <SearchPanel
           onSelectDestination={handleSelectDestination}
           userPos={userPos}
+          getCustomRoute={getCustomRoute}
+          getPreferredRoute={getPreferredRoute}
+          onDrawRoute={handleStartDrawing}
         />
       )}
 
-      {/* Buton glass pentru recentrare */}
+      {/* Buton de recentrare glass */}
       <div className="absolute right-3 bottom-48 z-30 flex flex-col gap-2">
         <button
           onClick={recenter}
@@ -506,6 +537,19 @@ export default function NavigatorApp() {
           navStarted={navStarted}
           onStart={startNavigation}
           rerouting={rerouting}
+        />
+      )}
+
+      {/* Modal pentru desenarea rutei personalizate */}
+      {showDrawModal && mapInstance && drawDestination && (
+        <DrawRouteModal
+          isOpen={showDrawModal}
+          onClose={() => setShowDrawModal(false)}
+          onSave={handleSaveDrawnRoute}
+          map={mapInstance}
+          startPoint={userPos ? [userPos.lon, userPos.lat] : DEFAULT_CENTER}
+          destPoint={[drawDestination.lon, drawDestination.lat]}
+          destLabel={drawDestination.label}
         />
       )}
     </div>
