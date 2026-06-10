@@ -265,9 +265,13 @@ export default function NavigatorApp() {
 
   // Desenează rută standard (albastră)
   const drawStandardRoute = useCallback((geo) => {
+    if (!mapInstance) {
+      console.warn('drawStandardRoute: mapInstance not ready');
+      return;
+    }
     routeGeomRef.current = geo.coordinates;
     removeAllRouteLayers();
-    if (!mapInstance) return;
+    // Adăugăm sursa și layer-ul
     mapInstance.addSource('standard-route-source', {
       type: 'geojson',
       data: {
@@ -289,9 +293,9 @@ export default function NavigatorApp() {
 
   // Desenează rută personalizată (portocalie)
   const drawCustomRoute = useCallback((geo) => {
+    if (!mapInstance) return;
     routeGeomRef.current = geo.coordinates;
     removeAllRouteLayers();
-    if (!mapInstance) return;
     mapInstance.addSource('custom-route-source', {
       type: 'geojson',
       data: {
@@ -439,7 +443,11 @@ export default function NavigatorApp() {
         padding: { top: 100, bottom: 450, left: 0, right: 0 },
       });
     }
-  }, [route, userPos, compass]);
+    // Dacă ruta este standard (nu personalizată), redesenăm pentru siguranță
+    if (!route.isCustom && route.geometry) {
+      drawStandardRoute(route.geometry);
+    }
+  }, [route, userPos, compass, drawStandardRoute]);
 
   // Monitorizare abatere rută (doar pentru rutele standard)
   useEffect(() => {
