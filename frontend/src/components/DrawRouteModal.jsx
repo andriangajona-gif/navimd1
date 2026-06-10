@@ -9,29 +9,28 @@ export default function DrawRouteModal({ isOpen, onClose, onSave, map, startPoin
   const lineLayerId = 'drawn-route-line';
   const lineSourceId = 'drawn-route';
 
-  // Funcție de curățare a resurselor
   const cleanup = useCallback(() => {
     if (!map) return;
-    if (map.getLayer(lineLayerId)) {
-      map.removeLayer(lineLayerId);
-    }
-    if (map.getSource(lineSourceId)) {
-      map.removeSource(lineSourceId);
-    }
+    if (map.getLayer(lineLayerId)) map.removeLayer(lineLayerId);
+    if (map.getSource(lineSourceId)) map.removeSource(lineSourceId);
     markersRef.current.forEach(marker => marker.remove());
     markersRef.current = [];
   }, [map]);
 
-  // Resetare la închiderea modalei
+  // Resetare completă la deschidere și închidere
   useEffect(() => {
     if (!isOpen) {
       cleanup();
       setPoints([]);
       setIsDrawing(false);
+    } else {
+      // La deschidere, asigură-te că nu este în modul desenare
+      setIsDrawing(false);
+      setPoints([]);
     }
   }, [isOpen, cleanup]);
 
-  // Gestionare click-uri pe hartă în modul desenare
+  // Gestionare click hartă (doar dacă desenarea este activă)
   useEffect(() => {
     if (!isOpen || !map || !isDrawing) return;
 
@@ -42,7 +41,6 @@ export default function DrawRouteModal({ isOpen, onClose, onSave, map, startPoin
       const { lng, lat } = e.lngLat;
       const newPoint = [lng, lat];
       setPoints(prev => [...prev, newPoint]);
-      
       const marker = new maplibregl.Marker({ color: '#f59e0b' })
         .setLngLat([lng, lat])
         .addTo(map);
@@ -60,7 +58,6 @@ export default function DrawRouteModal({ isOpen, onClose, onSave, map, startPoin
   // Desenează linia pe hartă
   useEffect(() => {
     if (!map) return;
-
     if (points.length < 2) {
       if (map.getLayer(lineLayerId)) {
         map.removeLayer(lineLayerId);
@@ -68,12 +65,10 @@ export default function DrawRouteModal({ isOpen, onClose, onSave, map, startPoin
       }
       return;
     }
-
     const geojson = {
       type: 'Feature',
       geometry: { type: 'LineString', coordinates: points }
     };
-
     if (map.getSource(lineSourceId)) {
       map.getSource(lineSourceId).setData(geojson);
     } else {
@@ -82,11 +77,7 @@ export default function DrawRouteModal({ isOpen, onClose, onSave, map, startPoin
         id: lineLayerId,
         type: 'line',
         source: lineSourceId,
-        paint: {
-          'line-color': '#f59e0b',
-          'line-width': 6,
-          'line-dasharray': [2, 2]
-        }
+        paint: { 'line-color': '#f59e0b', 'line-width': 6, 'line-dasharray': [2, 2] }
       });
     }
   }, [map, points]);
