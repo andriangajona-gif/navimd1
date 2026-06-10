@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { X, Check } from 'lucide-react';
+import { X, Check, MapPin, Undo2 } from 'lucide-react';
 import maplibregl from 'maplibre-gl';
 
 export default function DrawRouteModal({ isOpen, onClose, onSave, map, startPoint, destPoint }) {
@@ -17,6 +17,7 @@ export default function DrawRouteModal({ isOpen, onClose, onSave, map, startPoin
     if (map.getSource(lineSourceId)) map.removeSource(lineSourceId);
   }, [map, lineLayerId, lineSourceId]);
 
+  // Resetare la închidere
   useEffect(() => {
     if (!isOpen) {
       clearDrawing();
@@ -25,6 +26,7 @@ export default function DrawRouteModal({ isOpen, onClose, onSave, map, startPoin
     }
   }, [isOpen, clearDrawing]);
 
+  // Activare/dezactivare cursor desenare
   useEffect(() => {
     if (!map || !isOpen) return;
     if (isDrawing) {
@@ -36,6 +38,7 @@ export default function DrawRouteModal({ isOpen, onClose, onSave, map, startPoin
     }
   }, [isDrawing, isOpen, map, clearDrawing]);
 
+  // Captură click-uri pe hartă
   useEffect(() => {
     if (!map || !isOpen || !isDrawing) return;
 
@@ -49,11 +52,10 @@ export default function DrawRouteModal({ isOpen, onClose, onSave, map, startPoin
     };
 
     map.on('click', handleClick);
-    return () => {
-      map.off('click', handleClick);
-    };
+    return () => map.off('click', handleClick);
   }, [map, isOpen, isDrawing]);
 
+  // Desenare linie între puncte
   useEffect(() => {
     if (!map || !isOpen) return;
     if (points.length < 2) {
@@ -82,7 +84,6 @@ export default function DrawRouteModal({ isOpen, onClose, onSave, map, startPoin
 
   const handleStartDrawing = () => {
     setIsDrawing(true);
-    setPoints([]);
   };
 
   const handleUndoLast = () => {
@@ -94,11 +95,12 @@ export default function DrawRouteModal({ isOpen, onClose, onSave, map, startPoin
 
   const handleSave = () => {
     if (points.length < 2) {
-      alert('Adaugă cel puțin două puncte pe hartă.');
+      alert('Adaugă cel puțin două puncte pe hartă pentru a crea o rută.');
       return;
     }
     const fullRoute = [startPoint, ...points, destPoint];
     onSave(fullRoute);
+    setIsDrawing(false);
     onClose();
   };
 
@@ -111,49 +113,47 @@ export default function DrawRouteModal({ isOpen, onClose, onSave, map, startPoin
 
   if (!isOpen) return null;
 
+  // Buton flotant pentru începerea desenării (când nu suntem în modul desenare)
+  if (!isDrawing) {
+    return (
+      <div className="absolute bottom-24 right-3 z-40">
+        <button
+          onClick={handleStartDrawing}
+          className="bg-amber-500 text-white p-3 rounded-full shadow-lg flex items-center justify-center w-12 h-12 hover:bg-amber-600 transition-colors"
+          title="Desenează ruta personalizată"
+        >
+          <MapPin size={24} />
+        </button>
+      </div>
+    );
+  }
+
+  // Panou de control în timpul desenării
   return (
-    <div className="absolute inset-0 z-50 flex items-center justify-center p-4 pointer-events-none">
-      <div className="absolute inset-0 bg-black/50 backdrop-blur-sm -z-10 pointer-events-none" />
-      <div className="bg-white/30 backdrop-blur-md border border-white/50 rounded-2xl max-w-md w-full shadow-xl pointer-events-auto">
-        <div className="p-5">
-          <div className="flex justify-between items-center mb-4">
-            <h2 className="text-xl font-bold text-black">Desenează ruta personalizată</h2>
-            <button onClick={handleCancel} className="text-black/70 hover:text-black">
-              <X size={24} />
-            </button>
-          </div>
-          <p className="text-black/80 text-sm mb-4">
-            Click pe hartă pentru a adăuga puncte. Traseul tău va fi folosit pentru scuter.
-          </p>
-          {!isDrawing ? (
-            <button
-              onClick={handleStartDrawing}
-              className="w-full py-3 rounded-xl bg-amber-500 text-white font-bold"
-            >
-              Începe desenarea
-            </button>
-          ) : (
-            <div className="space-y-3">
-              <p className="text-black/70 text-sm">Adaugă puncte pe hartă. Ai {points.length} puncte.</p>
-              <div className="flex gap-3">
-                <button
-                  onClick={handleUndoLast}
-                  disabled={points.length === 0}
-                  className="flex-1 py-3 rounded-xl bg-white/40 border border-white/50 text-black font-semibold disabled:opacity-50"
-                >
-                  Undo ultimul punct
-                </button>
-                <button
-                  onClick={handleSave}
-                  className="flex-1 py-3 rounded-xl bg-green-500 text-white font-bold flex items-center justify-center gap-2"
-                >
-                  <Check size={18} /> Salvează ruta
-                </button>
-              </div>
-            </div>
-          )}
-          <button onClick={handleCancel} className="w-full mt-3 py-2 text-black/50 text-sm">
-            Renunță
+    <div className="absolute bottom-24 right-3 z-40 flex flex-col gap-2">
+      <div className="bg-white/90 backdrop-blur-md border border-amber-300 rounded-xl p-3 shadow-lg">
+        <div className="text-black text-sm font-semibold mb-2 text-center">
+          Desenare activă: {points.length} puncte
+        </div>
+        <div className="flex gap-2">
+          <button
+            onClick={handleUndoLast}
+            disabled={points.length === 0}
+            className="px-4 py-2 rounded-lg bg-white/70 border border-gray-300 text-black text-sm disabled:opacity-50 flex items-center gap-1"
+          >
+            <Undo2 size={14} /> Undo
+          </button>
+          <button
+            onClick={handleSave}
+            className="px-4 py-2 rounded-lg bg-green-600 text-white text-sm font-semibold flex items-center gap-1"
+          >
+            <Check size={14} /> Salvează
+          </button>
+          <button
+            onClick={handleCancel}
+            className="px-4 py-2 rounded-lg bg-red-600 text-white text-sm flex items-center gap-1"
+          >
+            <X size={14} /> Anulează
           </button>
         </div>
       </div>
