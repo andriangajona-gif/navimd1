@@ -9,14 +9,13 @@ const MANUAL_COORDS = {
   "67": { lat: 47.90616, lon: 28.28910 },
 };
 
-export default function SearchPanel({ onSelectDestination }) { // am eliminat getCustomRoute, getPreferredRoute
+export default function SearchPanel({ onSelectDestination }) {
   const [q, setQ] = useState('');
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [results, setResults] = useState([]);
   const [selectedStreet, setSelectedStreet] = useState(null);
   const [error, setError] = useState(null);
-  const [pendingDest, setPendingDest] = useState(null);
   const debounceRef = useRef(null);
   const abortRef = useRef(null);
 
@@ -109,38 +108,22 @@ export default function SearchPanel({ onSelectDestination }) { // am eliminat ge
       city: selectedStreet.parent_name,
     };
 
-    setPendingDest(dest);
-    setOpen(false);
-  };
+    // Construiește ruta imediat, fără popup
+    onSelectDestination(dest, false);
 
-  const handleChooseStandard = () => {
-    if (pendingDest) {
-      onSelectDestination(pendingDest, false); // mereu standard, fără custom
-      setPendingDest(null); setQ(''); setSelectedStreet(null); setResults([]);
-    }
+    // Resetează căutarea și închide panoul
+    setQ('');
+    setSelectedStreet(null);
+    setResults([]);
+    setError(null);
+    setOpen(false);
   };
 
   const reset = () => {
     if (abortRef.current) abortRef.current.abort();
     setQ(''); setResults([]); setSelectedStreet(null);
-    setError(null); setPendingDest(null);
+    setError(null);
   };
-
-  // Fereastra de selecție a rutei – doar standard și anulare
-  if (pendingDest) {
-    return (
-      <div className="absolute inset-0 z-50 bg-black/30 backdrop-blur-sm flex items-end">
-        <div className="bg-white/30 backdrop-blur-sm border-t border-white/40 rounded-t-2xl p-5 w-full">
-          <div className="text-[17px] font-bold text-black mb-1">Маршрут к дому</div>
-          <div className="text-[14px] text-black/80 mb-4 bg-white/30 p-2.5 rounded-lg">{pendingDest.street}, дом {pendingDest.building}</div>
-          <button onClick={handleChooseStandard} className="w-full py-3.5 rounded-xl bg-white/40 border border-white/50 text-black font-semibold">
-            Поехать стандартным навигатором
-          </button>
-          <button onClick={reset} className="w-full mt-3 py-2 text-black/50">Отмена</button>
-        </div>
-      </div>
-    );
-  }
 
   return (
     <div className="absolute top-3 left-3 right-3 z-30">
