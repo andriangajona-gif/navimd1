@@ -46,7 +46,7 @@ export default function NavigationPanel({ route, currentStep, destination, onCan
         </div>
       )}
 
-      {/* Panou inferior - glass text negru */}
+      {/* Panou inferior - glass, text negru */}
       <div className="absolute bottom-0 left-0 right-0 z-30 bg-white/20 backdrop-blur-sm border-t border-white/30 rounded-t-2xl px-3 pt-3 pb-[max(env(safe-area-inset-bottom),12px)]">
         {!navStarted ? (
           <>
