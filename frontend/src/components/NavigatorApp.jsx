@@ -464,8 +464,6 @@ export default function NavigatorApp() {
         <SearchPanel
           onSelectDestination={handleSelectDestination}
           userPos={userPos}
-          getCustomRoute={getCustomRoute}
-          getPreferredRoute={getPreferredRoute}
         />
       )}
 
