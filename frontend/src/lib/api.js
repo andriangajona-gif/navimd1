@@ -3,18 +3,11 @@ import axios from 'axios';
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 export const API = `${BACKEND_URL}/api`;
 
-// Timeout mărit la 45 secunde pentru a permite backend-ului să pornească dacă a fost în repaus
 export const api = axios.create({ baseURL: API, timeout: 45000 });
 
 export async function searchStreets(q, location = 'Florești') {
   const { data } = await api.get('/search', { params: { q, location, lang: 'ro' } });
   return data;
-}
-
-// Funcția nouă pentru a obține lista numerelor de case
-export async function getBuildings(streetName, city = 'Florești') {
-  const { data } = await api.get('/buildings', { params: { street_name: streetName, city, lang: 'ro' } });
-  return data; // { buildings: [...] }
 }
 
 export async function getRoute(fromLat, fromLon, toLat, toLon, profile = 'driving') {
@@ -29,7 +22,7 @@ export async function geocodeBuilding(street, building, city = 'Florești') {
   return data;
 }
 
-// ===== Система учёта дорог =====
+// ===== Sistem de înregistrare a traseelor =====
 const ROAD_STATS_KEY = 'road_stats';
 const TRIP_HISTORY_KEY = 'trip_history';
 
