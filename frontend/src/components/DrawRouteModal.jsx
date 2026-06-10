@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { X, Check } from 'lucide-react';
 import maplibregl from 'maplibre-gl';
 
@@ -9,13 +9,13 @@ export default function DrawRouteModal({ isOpen, onClose, onSave, map, startPoin
   const lineSourceId = 'drawn-route';
   const lineLayerId = 'drawn-route-layer';
 
-  const clearDrawing = () => {
+  const clearDrawing = useCallback(() => {
     if (!map) return;
     markersRef.current.forEach(m => m.remove());
     markersRef.current = [];
     if (map.getLayer(lineLayerId)) map.removeLayer(lineLayerId);
     if (map.getSource(lineSourceId)) map.removeSource(lineSourceId);
-  };
+  }, [map, lineLayerId, lineSourceId]);
 
   useEffect(() => {
     if (!isOpen) {
@@ -23,7 +23,7 @@ export default function DrawRouteModal({ isOpen, onClose, onSave, map, startPoin
       setPoints([]);
       setIsDrawing(false);
     }
-  }, [isOpen, map]);
+  }, [isOpen, clearDrawing]);
 
   useEffect(() => {
     if (!map || !isOpen) return;
@@ -34,7 +34,7 @@ export default function DrawRouteModal({ isOpen, onClose, onSave, map, startPoin
     } else {
       map.getCanvas().style.cursor = '';
     }
-  }, [isDrawing, isOpen, map]);
+  }, [isDrawing, isOpen, map, clearDrawing]);
 
   useEffect(() => {
     if (!map || !isOpen || !isDrawing) return;
@@ -78,7 +78,7 @@ export default function DrawRouteModal({ isOpen, onClose, onSave, map, startPoin
     } else {
       map.getSource(lineSourceId).setData(geojson);
     }
-  }, [map, points, isOpen]);
+  }, [map, points, isOpen, lineSourceId, lineLayerId]);
 
   const handleStartDrawing = () => {
     setIsDrawing(true);
@@ -113,9 +113,7 @@ export default function DrawRouteModal({ isOpen, onClose, onSave, map, startPoin
 
   return (
     <div className="absolute inset-0 z-50 flex items-center justify-center p-4 pointer-events-none">
-      {/* Fundal semitransparent care nu blochează click-urile */}
       <div className="absolute inset-0 bg-black/50 backdrop-blur-sm -z-10 pointer-events-none" />
-      {/* Fereastra modală propriu-zisă - permite click-uri doar pe ea */}
       <div className="bg-white/30 backdrop-blur-md border border-white/50 rounded-2xl max-w-md w-full shadow-xl pointer-events-auto">
         <div className="p-5">
           <div className="flex justify-between items-center mb-4">
