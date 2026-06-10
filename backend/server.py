@@ -35,7 +35,6 @@ http_client: Optional[httpx.AsyncClient] = None
 @app.on_event('startup')
 async def _startup():
     global http_client
-    # Timeout mărit la 45 secunde pentru a permite răspunsuri lente de la map.md
     http_client = httpx.AsyncClient(timeout=45.0, follow_redirects=True)
 
 @app.on_event('shutdown')
@@ -105,6 +104,39 @@ async def search_general(
         return data
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@api_router.get('/buildings')
+async def get_buildings(
+    street_name: str = Query(...),
+    city: str = Query('Florești'),
+    lang: str = Query('ro'),
+):
+    """Obține lista numerelor de case pentru o stradă, folosind map.md."""
+    url = f'{MAPMD_BASE}/search_street'
+    params = {'q': street_name, 'location': city, 'lang': lang}
+    auth = (MAPMD_API_KEY, '')
+    try:
+        r = await http_client.get(url, params=params, auth=auth)
+        if r.status_code != 200:
+            logger.warning(f'buildings: status={r.status_code}')
+            return {'buildings': []}
+        data = r.json()
+        if not isinstance(data, list):
+            return {'buildings': []}
+        for item in data:
+            if item.get('type') == 'street' and item.get('name', '').lower() == street_name.lower():
+                buildings = item.get('buildings', [])
+                # sortare numerică aproximativă
+                try:
+                    buildings.sort(key=lambda x: int(x.split('/')[0]) if x.replace('/', '').isdigit() else x)
+                except:
+                    pass
+                return {'buildings': buildings}
+        return {'buildings': []}
+    except Exception as e:
+        logger.exception('buildings error')
+        return {'buildings': []}
 
 
 @api_router.get('/geocode')
