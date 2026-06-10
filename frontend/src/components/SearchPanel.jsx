@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Search, X, MapPin, Building2, ChevronRight, ArrowLeft, Star, Clock, Plus, Loader2 } from 'lucide-react';
-import { searchStreets, geocodeBuilding, getBuildings } from '../lib/api';
+import { Search, X, MapPin, Building2, ChevronRight, ArrowLeft, Star, Clock } from 'lucide-react';
+import { searchStreets, geocodeBuilding } from '../lib/api';
 
 // Corecții manuale pentru Strada 9 Mai
 const MANUAL_COORDS = {
@@ -15,8 +15,6 @@ export default function SearchPanel({ onSelectDestination, getCustomRoute, getPr
   const [loading, setLoading] = useState(false);
   const [results, setResults] = useState([]);
   const [selectedStreet, setSelectedStreet] = useState(null);
-  const [buildings, setBuildings] = useState([]);
-  const [loadingBuildings, setLoadingBuildings] = useState(false);
   const [error, setError] = useState(null);
   const [pendingDest, setPendingDest] = useState(null);
   const [pendingHasCustom, setPendingHasCustom] = useState(false);
@@ -24,7 +22,6 @@ export default function SearchPanel({ onSelectDestination, getCustomRoute, getPr
   const debounceRef = useRef(null);
   const abortRef = useRef(null);
 
-  // Căutare străzi
   useEffect(() => {
     const query = q.trim();
     if (query.length < 2 || selectedStreet) {
@@ -67,26 +64,11 @@ export default function SearchPanel({ onSelectDestination, getCustomRoute, getPr
     };
   }, [q, selectedStreet]);
 
-  const handleStreetClick = async (street) => {
+  const handleStreetClick = (street) => {
     if (street.name === "str. 9 Mai") {
       street = { ...street, name: "Strada 9 Mai" };
     }
     setSelectedStreet(street);
-    setBuildings([]);
-    setLoadingBuildings(true);
-    try {
-      const data = await getBuildings(street.name, street.parent_name || 'Florești');
-      if (data.buildings && Array.isArray(data.buildings)) {
-        setBuildings(data.buildings);
-      } else {
-        setBuildings([]);
-      }
-    } catch (e) {
-      console.warn('Failed to load buildings', e);
-      setBuildings([]);
-    } finally {
-      setLoadingBuildings(false);
-    }
   };
 
   const handleBuildingClick = async (b) => {
@@ -141,24 +123,24 @@ export default function SearchPanel({ onSelectDestination, getCustomRoute, getPr
   const handleChooseStandard = () => {
     if (pendingDest) {
       onSelectDestination(pendingDest, false);
-      setPendingDest(null); setQ(''); setSelectedStreet(null); setBuildings([]);
+      setPendingDest(null); setQ(''); setSelectedStreet(null); setResults([]);
     }
   };
 
   const handleChooseCustom = () => {
     if (pendingDest) {
       onSelectDestination(pendingDest, true);
-      setPendingDest(null); setQ(''); setSelectedStreet(null); setBuildings([]);
+      setPendingDest(null); setQ(''); setSelectedStreet(null); setResults([]);
     }
   };
 
   const reset = () => {
     if (abortRef.current) abortRef.current.abort();
-    setQ(''); setResults([]); setSelectedStreet(null); setBuildings([]);
+    setQ(''); setResults([]); setSelectedStreet(null);
     setError(null); setPendingDest(null);
   };
 
-  // Fereastra de selecție a rutei (modificată – eliminat butonul "Записать мой собственный маршрут")
+  // Fereastra de selecție a rutei – fără butonul "Записать мой собственный маршрут"
   if (pendingDest) {
     return (
       <div className="absolute inset-0 z-50 bg-black/30 backdrop-blur-sm flex items-end">
@@ -170,7 +152,7 @@ export default function SearchPanel({ onSelectDestination, getCustomRoute, getPr
               {pendingHasCustom ? <Star size={18} fill="currentColor" /> : <Clock size={18} />}
               {pendingHasCustom ? 'Поехать моим сохранённым путём' : 'Включить привычный маршрут'}
             </button>
-          ) : null /* Eliminat butonul "Записать мой собственный маршрут" */}
+          ) : null}
           <button onClick={handleChooseStandard} className="w-full py-3.5 rounded-xl bg-white/40 border border-white/50 text-black font-semibold">
             Поехать стандартным навигатором
           </button>
@@ -182,7 +164,6 @@ export default function SearchPanel({ onSelectDestination, getCustomRoute, getPr
 
   return (
     <div className="absolute top-3 left-3 right-3 z-30">
-      {/* Bara de căutare glass */}
       <div className="bg-white/30 backdrop-blur-sm border border-white/40 rounded-xl flex items-center px-3 py-2 gap-2">
         {selectedStreet ? (
           <button onClick={() => setSelectedStreet(null)} className="text-black/70"><ArrowLeft size={20} /></button>
@@ -213,7 +194,7 @@ export default function SearchPanel({ onSelectDestination, getCustomRoute, getPr
                   <div className="w-9 h-9 rounded-full bg-amber-500/70 flex items-center justify-center text-white"><MapPin size={18} /></div>
                   <div className="flex-1">
                     <div className="text-black font-medium">{s.name}</div>
-                    <div className="text-black/60 text-xs">{s.parent_name}</div>
+                    <div className="text-black/60 text-xs">{s.parent_name} · {s.count} домов</div>
                   </div>
                   <ChevronRight size={16} className="text-black/40" />
                 </button>
@@ -223,26 +204,18 @@ export default function SearchPanel({ onSelectDestination, getCustomRoute, getPr
 
           {selectedStreet && (
             <div className="p-3">
-              <div className="text-black font-bold mb-2">
-                {loadingBuildings ? (
-                  <span className="flex items-center gap-2"><Loader2 size={16} className="animate-spin" /> Загрузка номеров...</span>
-                ) : (
-                  `Выберите номер дома (${buildings.length})`
-                )}
+              <div className="text-black font-bold mb-2">Выберите номер дома ({selectedStreet.buildings?.length || 0}):</div>
+              <div className="grid grid-cols-4 sm:grid-cols-6 gap-2">
+                {(selectedStreet.buildings || []).map(b => (
+                  <button
+                    key={b}
+                    onClick={() => handleBuildingClick(b)}
+                    className="px-2 py-3 rounded-xl bg-white/40 border border-white/50 text-black font-bold hover:bg-white/60 flex justify-center gap-1"
+                  >
+                    <Building2 size={13} className="text-black/60" /> {b}
+                  </button>
+                ))}
               </div>
-              {!loadingBuildings && (
-                <div className="grid grid-cols-4 sm:grid-cols-6 gap-2">
-                  {buildings.map(b => (
-                    <button
-                      key={b}
-                      onClick={() => handleBuildingClick(b)}
-                      className="px-2 py-3 rounded-xl bg-white/40 border border-white/50 text-black font-bold hover:bg-white/60 flex justify-center gap-1"
-                    >
-                      <Building2 size={13} className="text-black/60" /> {b}
-                    </button>
-                  ))}
-                </div>
-              )}
             </div>
           )}
         </div>
