@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { X, Check } from 'lucide-react';
 import maplibregl from 'maplibre-gl';
 
@@ -9,25 +9,29 @@ export default function DrawRouteModal({ isOpen, onClose, onSave, map, startPoin
   const lineLayerId = 'drawn-route-line';
   const lineSourceId = 'drawn-route';
 
-  // Curăță layer-ele și markerii
-  const cleanup = () => {
+  // Funcție de curățare a resurselor
+  const cleanup = useCallback(() => {
     if (!map) return;
-    if (map.getLayer(lineLayerId)) map.removeLayer(lineLayerId);
-    if (map.getSource(lineSourceId)) map.removeSource(lineSourceId);
+    if (map.getLayer(lineLayerId)) {
+      map.removeLayer(lineLayerId);
+    }
+    if (map.getSource(lineSourceId)) {
+      map.removeSource(lineSourceId);
+    }
     markersRef.current.forEach(marker => marker.remove());
     markersRef.current = [];
-  };
+  }, [map]);
 
-  // Resetează când se închide modalul
+  // Resetare la închiderea modalei
   useEffect(() => {
     if (!isOpen) {
       cleanup();
       setPoints([]);
       setIsDrawing(false);
     }
-  }, [isOpen, map]);
+  }, [isOpen, cleanup]);
 
-  // Configurează cursorul și evenimentele de click pe hartă
+  // Gestionare click-uri pe hartă în modul desenare
   useEffect(() => {
     if (!isOpen || !map || !isDrawing) return;
 
@@ -55,27 +59,25 @@ export default function DrawRouteModal({ isOpen, onClose, onSave, map, startPoin
 
   // Desenează linia pe hartă
   useEffect(() => {
-    if (!map || points.length < 2) {
-      if (map && map.getLayer(lineLayerId)) {
+    if (!map) return;
+
+    if (points.length < 2) {
+      if (map.getLayer(lineLayerId)) {
         map.removeLayer(lineLayerId);
         map.removeSource(lineSourceId);
       }
       return;
     }
 
+    const geojson = {
+      type: 'Feature',
+      geometry: { type: 'LineString', coordinates: points }
+    };
+
     if (map.getSource(lineSourceId)) {
-      map.getSource(lineSourceId).setData({
-        type: 'Feature',
-        geometry: { type: 'LineString', coordinates: points }
-      });
+      map.getSource(lineSourceId).setData(geojson);
     } else {
-      map.addSource(lineSourceId, {
-        type: 'geojson',
-        data: {
-          type: 'Feature',
-          geometry: { type: 'LineString', coordinates: points }
-        }
-      });
+      map.addSource(lineSourceId, { type: 'geojson', data: geojson });
       map.addLayer({
         id: lineLayerId,
         type: 'line',
@@ -149,7 +151,7 @@ export default function DrawRouteModal({ isOpen, onClose, onSave, map, startPoin
                   disabled={points.length === 0}
                   className="flex-1 py-3 rounded-xl bg-white/40 border border-white/50 text-black font-semibold disabled:opacity-50"
                 >
-                  Unde ultimul punct
+                  Undo ultimul punct
                 </button>
                 <button
                   onClick={handleSaveRoute}
