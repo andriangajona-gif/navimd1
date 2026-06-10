@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { X, Check } from 'lucide-react';
 import maplibregl from 'maplibre-gl';
 
@@ -6,41 +6,42 @@ export default function DrawRouteModal({ isOpen, onClose, onSave, map, startPoin
   const [points, setPoints] = useState([]);
   const [isDrawing, setIsDrawing] = useState(false);
   const markersRef = useRef([]);
-  const lineLayerId = 'drawn-route-line';
   const lineSourceId = 'drawn-route';
+  const lineLayerId = 'drawn-route-layer';
 
-  const cleanup = useCallback(() => {
+  const clearDrawing = () => {
     if (!map) return;
+    markersRef.current.forEach(m => m.remove());
+    markersRef.current = [];
     if (map.getLayer(lineLayerId)) map.removeLayer(lineLayerId);
     if (map.getSource(lineSourceId)) map.removeSource(lineSourceId);
-    markersRef.current.forEach(marker => marker.remove());
-    markersRef.current = [];
-  }, [map]);
+  };
 
-  // Resetare completă la deschidere și închidere
   useEffect(() => {
     if (!isOpen) {
-      cleanup();
+      clearDrawing();
       setPoints([]);
       setIsDrawing(false);
-    } else {
-      // La deschidere, asigură-te că nu este în modul desenare
-      setIsDrawing(false);
-      setPoints([]);
     }
-  }, [isOpen, cleanup]);
+  }, [isOpen, map]);
 
-  // Gestionare click hartă (doar dacă desenarea este activă)
   useEffect(() => {
-    if (!isOpen || !map || !isDrawing) return;
+    if (!map || !isOpen) return;
+    if (isDrawing) {
+      clearDrawing();
+      setPoints([]);
+      map.getCanvas().style.cursor = 'crosshair';
+    } else {
+      map.getCanvas().style.cursor = '';
+    }
+  }, [isDrawing, isOpen, map]);
 
-    const canvas = map.getCanvas();
-    canvas.style.cursor = 'crosshair';
+  useEffect(() => {
+    if (!map || !isOpen || !isDrawing) return;
 
     const handleClick = (e) => {
       const { lng, lat } = e.lngLat;
-      const newPoint = [lng, lat];
-      setPoints(prev => [...prev, newPoint]);
+      setPoints(prev => [...prev, [lng, lat]]);
       const marker = new maplibregl.Marker({ color: '#f59e0b' })
         .setLngLat([lng, lat])
         .addTo(map);
@@ -48,16 +49,13 @@ export default function DrawRouteModal({ isOpen, onClose, onSave, map, startPoin
     };
 
     map.on('click', handleClick);
-
     return () => {
-      canvas.style.cursor = '';
       map.off('click', handleClick);
     };
-  }, [isOpen, map, isDrawing]);
+  }, [map, isOpen, isDrawing]);
 
-  // Desenează linia pe hartă
   useEffect(() => {
-    if (!map) return;
+    if (!map || !isOpen) return;
     if (points.length < 2) {
       if (map.getLayer(lineLayerId)) {
         map.removeLayer(lineLayerId);
@@ -67,20 +65,20 @@ export default function DrawRouteModal({ isOpen, onClose, onSave, map, startPoin
     }
     const geojson = {
       type: 'Feature',
-      geometry: { type: 'LineString', coordinates: points }
+      geometry: { type: 'LineString', coordinates: points },
     };
-    if (map.getSource(lineSourceId)) {
-      map.getSource(lineSourceId).setData(geojson);
-    } else {
+    if (!map.getSource(lineSourceId)) {
       map.addSource(lineSourceId, { type: 'geojson', data: geojson });
       map.addLayer({
         id: lineLayerId,
         type: 'line',
         source: lineSourceId,
-        paint: { 'line-color': '#f59e0b', 'line-width': 6, 'line-dasharray': [2, 2] }
+        paint: { 'line-color': '#f59e0b', 'line-width': 6, 'line-dasharray': [2, 2] },
       });
+    } else {
+      map.getSource(lineSourceId).setData(geojson);
     }
-  }, [map, points]);
+  }, [map, points, isOpen]);
 
   const handleStartDrawing = () => {
     setIsDrawing(true);
@@ -90,22 +88,22 @@ export default function DrawRouteModal({ isOpen, onClose, onSave, map, startPoin
   const handleUndoLast = () => {
     if (points.length === 0) return;
     setPoints(prev => prev.slice(0, -1));
-    const lastMarker = markersRef.current.pop();
-    if (lastMarker) lastMarker.remove();
+    const last = markersRef.current.pop();
+    if (last) last.remove();
   };
 
-  const handleSaveRoute = () => {
+  const handleSave = () => {
     if (points.length < 2) {
-      alert('Adaugă cel puțin două puncte pentru a crea o rută.');
+      alert('Adaugă cel puțin două puncte pe hartă.');
       return;
     }
-    const allPoints = [startPoint, ...points, destPoint];
-    onSave(allPoints);
+    const fullRoute = [startPoint, ...points, destPoint];
+    onSave(fullRoute);
     onClose();
   };
 
   const handleCancel = () => {
-    cleanup();
+    clearDrawing();
     setPoints([]);
     setIsDrawing(false);
     onClose();
@@ -114,8 +112,11 @@ export default function DrawRouteModal({ isOpen, onClose, onSave, map, startPoin
   if (!isOpen) return null;
 
   return (
-    <div className="absolute inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4">
-      <div className="bg-white/30 backdrop-blur-md border border-white/50 rounded-2xl max-w-md w-full shadow-xl">
+    <div className="absolute inset-0 z-50 flex items-center justify-center p-4 pointer-events-none">
+      {/* Fundal semitransparent care nu blochează click-urile */}
+      <div className="absolute inset-0 bg-black/50 backdrop-blur-sm -z-10 pointer-events-none" />
+      {/* Fereastra modală propriu-zisă - permite click-uri doar pe ea */}
+      <div className="bg-white/30 backdrop-blur-md border border-white/50 rounded-2xl max-w-md w-full shadow-xl pointer-events-auto">
         <div className="p-5">
           <div className="flex justify-between items-center mb-4">
             <h2 className="text-xl font-bold text-black">Desenează ruta personalizată</h2>
@@ -145,7 +146,7 @@ export default function DrawRouteModal({ isOpen, onClose, onSave, map, startPoin
                   Undo ultimul punct
                 </button>
                 <button
-                  onClick={handleSaveRoute}
+                  onClick={handleSave}
                   className="flex-1 py-3 rounded-xl bg-green-500 text-white font-bold flex items-center justify-center gap-2"
                 >
                   <Check size={18} /> Salvează ruta
