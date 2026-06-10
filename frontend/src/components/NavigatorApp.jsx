@@ -141,7 +141,6 @@ export default function NavigatorApp() {
   const lastReroutedAtRef = useRef(0);
   const offRouteSinceRef = useRef(null);
 
-  // Stări pentru desenarea manuală a rutei
   const [showDrawModal, setShowDrawModal] = useState(false);
   const [drawDestination, setDrawDestination] = useState(null);
 
@@ -343,13 +342,11 @@ export default function NavigatorApp() {
     }
   }, [navStarted, destination, resetAll]);
 
-  // Funcție pentru desenarea unei noi rute (pentru scuter)
   const handleStartDrawing = (dest) => {
     setDrawDestination(dest);
     setShowDrawModal(true);
   };
 
-  // Salvează ruta desenată manual în localStorage
   const handleSaveDrawnRoute = (points) => {
     if (!drawDestination) return;
     const customRoutes = JSON.parse(localStorage.getItem('custom_routes') || '{}');
@@ -364,7 +361,6 @@ export default function NavigatorApp() {
     setDrawDestination(null);
   };
 
-  // Selectarea destinației (folosește ruta standard sau cea desenată)
   const handleSelectDestination = useCallback(async (dest, useCustom = false) => {
     setError(null);
     if (!userPos) { setError('Aștept semnal GPS.'); return; }
@@ -378,6 +374,12 @@ export default function NavigatorApp() {
     destMarkerRef.current = new maplibregl.Marker({ element: el, anchor: 'bottom' })
       .setLngLat([dest.lon, dest.lat]).addTo(map);
 
+    // Curăță layer-ul rămas de la desenarea manuală
+    if (map && map.getLayer('drawn-route-layer')) {
+      map.removeLayer('drawn-route-layer');
+      map.removeSource('drawn-route');
+    }
+
     if (useCustom) {
       const custom = getCustomRoute(dest.label);
       const preferred = getPreferredRoute(dest.label);
@@ -386,7 +388,8 @@ export default function NavigatorApp() {
         const fakeRoute = {
           distance: 0, duration: 0,
           geometry: { type: 'LineString', coordinates: track },
-          steps: [{ distance: 0, duration: 0, name: '', instruction: 'Urmează ruta ta personală', type: 'depart', modifier: '', location: track[0] }]
+          steps: [{ distance: 0, duration: 0, name: '', instruction: 'Urmează ruta ta personală', type: 'depart', modifier: '', location: track[0] }],
+          isCustom: true   // ← marcăm ca rută personalizată
         };
         setRoute(fakeRoute); setCurrentStep(0); setNavStarted(false);
         drawRoute(fakeRoute.geometry);
@@ -397,7 +400,6 @@ export default function NavigatorApp() {
       }
     }
 
-    // Ruta standard (OSRM)
     try {
       const r = await getRoute(userPos.lat, userPos.lon, dest.lat, dest.lon, profile);
       setRoute(r); setCurrentStep(0); setNavStarted(false);
@@ -430,7 +432,7 @@ export default function NavigatorApp() {
     }
   }, [route, userPos, compass]);
 
-  // Monitorizare abatere de la rută
+  // Monitorizare abatere rută
   useEffect(() => {
     if (!route || !userPos || !navStarted) return;
     const steps = route.steps || [];
@@ -485,7 +487,7 @@ export default function NavigatorApp() {
   return (
     <div className="App" style={{ position: 'relative' }}>
       <div ref={mapContainerRef} className="absolute inset-0" />
-      {mapInstance && routeCoords && (
+      {mapInstance && routeCoords && route && !route.isCustom && (
         <RouteOverlay routeCoords={routeCoords} map={mapInstance} />
       )}
       {!route && (
@@ -498,7 +500,6 @@ export default function NavigatorApp() {
         />
       )}
 
-      {/* Buton de recentrare glass */}
       <div className="absolute right-3 bottom-48 z-30 flex flex-col gap-2">
         <button
           onClick={recenter}
@@ -540,7 +541,6 @@ export default function NavigatorApp() {
         />
       )}
 
-      {/* Modal pentru desenarea rutei personalizate */}
       {showDrawModal && mapInstance && drawDestination && (
         <DrawRouteModal
           isOpen={showDrawModal}
@@ -549,7 +549,6 @@ export default function NavigatorApp() {
           map={mapInstance}
           startPoint={userPos ? [userPos.lon, userPos.lat] : DEFAULT_CENTER}
           destPoint={[drawDestination.lon, drawDestination.lat]}
-          destLabel={drawDestination.label}
         />
       )}
     </div>
