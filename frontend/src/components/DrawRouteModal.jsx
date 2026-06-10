@@ -59,10 +59,8 @@ export default function DrawRouteModal({ isOpen, onClose, onSave, map, startPoin
   useEffect(() => {
     if (!map || !isOpen) return;
     if (points.length < 2) {
-      if (map.getLayer(lineLayerId)) {
-        map.removeLayer(lineLayerId);
-        map.removeSource(lineSourceId);
-      }
+      if (map.getLayer(lineLayerId)) map.removeLayer(lineLayerId);
+      if (map.getSource(lineSourceId)) map.removeSource(lineSourceId);
       return;
     }
     const geojson = {
@@ -100,12 +98,13 @@ export default function DrawRouteModal({ isOpen, onClose, onSave, map, startPoin
     }
     const fullRoute = [startPoint, ...points, destPoint];
     onSave(fullRoute);
+    clearDrawing();   // Șterge toate urmele de pe hartă
     setIsDrawing(false);
     onClose();
   };
 
   const handleCancel = () => {
-    clearDrawing();
+    clearDrawing();   // Șterge toate urmele de pe hartă
     setPoints([]);
     setIsDrawing(false);
     onClose();
@@ -113,7 +112,7 @@ export default function DrawRouteModal({ isOpen, onClose, onSave, map, startPoin
 
   if (!isOpen) return null;
 
-  // Buton flotant pentru începerea desenării (când nu suntem în modul desenare)
+  // Buton flotant pentru începerea desenării
   if (!isDrawing) {
     return (
       <div className="absolute bottom-24 right-3 z-40">
