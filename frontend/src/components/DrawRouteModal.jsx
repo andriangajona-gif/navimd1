@@ -1,29 +1,48 @@
-import React, { useState, useEffect } from 'react';
-import { X, Check, Trash2, MapPin } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { X, Check } from 'lucide-react';
+import maplibregl from 'maplibre-gl';
 
-export default function DrawRouteModal({ isOpen, onClose, onSave, map, startPoint, destPoint, destLabel }) {
+export default function DrawRouteModal({ isOpen, onClose, onSave, map, startPoint, destPoint }) {
   const [points, setPoints] = useState([]);
   const [isDrawing, setIsDrawing] = useState(false);
-  const [tempMarker, setTempMarker] = useState(null);
+  const markersRef = useRef([]);
+  const lineLayerId = 'drawn-route-line';
+  const lineSourceId = 'drawn-route';
 
+  // Curăță layer-ele și markerii
+  const cleanup = () => {
+    if (!map) return;
+    if (map.getLayer(lineLayerId)) map.removeLayer(lineLayerId);
+    if (map.getSource(lineSourceId)) map.removeSource(lineSourceId);
+    markersRef.current.forEach(marker => marker.remove());
+    markersRef.current = [];
+  };
+
+  // Resetează când se închide modalul
   useEffect(() => {
-    if (!isOpen || !map) return;
+    if (!isOpen) {
+      cleanup();
+      setPoints([]);
+      setIsDrawing(false);
+    }
+  }, [isOpen, map]);
 
-    // Stil cursor pentru desenare
+  // Configurează cursorul și evenimentele de click pe hartă
+  useEffect(() => {
+    if (!isOpen || !map || !isDrawing) return;
+
     const canvas = map.getCanvas();
     canvas.style.cursor = 'crosshair';
 
     const handleClick = (e) => {
-      if (!isDrawing) return;
-      const lngLat = e.lngLat;
-      const newPoint = [lngLat.lng, lngLat.lat];
+      const { lng, lat } = e.lngLat;
+      const newPoint = [lng, lat];
       setPoints(prev => [...prev, newPoint]);
       
-      // Adaugă un marker temporar
       const marker = new maplibregl.Marker({ color: '#f59e0b' })
-        .setLngLat(newPoint)
+        .setLngLat([lng, lat])
         .addTo(map);
-      setTempMarker(marker);
+      markersRef.current.push(marker);
     };
 
     map.on('click', handleClick);
@@ -31,51 +50,55 @@ export default function DrawRouteModal({ isOpen, onClose, onSave, map, startPoin
     return () => {
       canvas.style.cursor = '';
       map.off('click', handleClick);
-      if (tempMarker) tempMarker.remove();
     };
   }, [isOpen, map, isDrawing]);
 
+  // Desenează linia pe hartă
   useEffect(() => {
-    // Desenează linia pe hartă pentru punctele adăugate
-    if (!map || points.length < 2) return;
-    
-    // Elimină layer-ul anterior dacă există
-    if (map.getSource('drawn-route')) {
-      map.removeLayer('drawn-route-line');
-      map.removeSource('drawn-route');
+    if (!map || points.length < 2) {
+      if (map && map.getLayer(lineLayerId)) {
+        map.removeLayer(lineLayerId);
+        map.removeSource(lineSourceId);
+      }
+      return;
     }
-    
-    map.addSource('drawn-route', {
-      type: 'geojson',
-      data: {
+
+    if (map.getSource(lineSourceId)) {
+      map.getSource(lineSourceId).setData({
         type: 'Feature',
-        geometry: {
-          type: 'LineString',
-          coordinates: points
+        geometry: { type: 'LineString', coordinates: points }
+      });
+    } else {
+      map.addSource(lineSourceId, {
+        type: 'geojson',
+        data: {
+          type: 'Feature',
+          geometry: { type: 'LineString', coordinates: points }
         }
-      }
-    });
-    map.addLayer({
-      id: 'drawn-route-line',
-      type: 'line',
-      source: 'drawn-route',
-      paint: {
-        'line-color': '#f59e0b',
-        'line-width': 6,
-        'line-dasharray': [2, 2]
-      }
-    });
-  }, [points, map]);
+      });
+      map.addLayer({
+        id: lineLayerId,
+        type: 'line',
+        source: lineSourceId,
+        paint: {
+          'line-color': '#f59e0b',
+          'line-width': 6,
+          'line-dasharray': [2, 2]
+        }
+      });
+    }
+  }, [map, points]);
 
   const handleStartDrawing = () => {
     setIsDrawing(true);
     setPoints([]);
-    if (tempMarker) tempMarker.remove();
   };
 
   const handleUndoLast = () => {
+    if (points.length === 0) return;
     setPoints(prev => prev.slice(0, -1));
-    if (tempMarker) tempMarker.remove();
+    const lastMarker = markersRef.current.pop();
+    if (lastMarker) lastMarker.remove();
   };
 
   const handleSaveRoute = () => {
@@ -83,21 +106,15 @@ export default function DrawRouteModal({ isOpen, onClose, onSave, map, startPoin
       alert('Adaugă cel puțin două puncte pentru a crea o rută.');
       return;
     }
-    // Salvează ruta în localStorage
     const allPoints = [startPoint, ...points, destPoint];
     onSave(allPoints);
     onClose();
   };
 
   const handleCancel = () => {
+    cleanup();
     setPoints([]);
     setIsDrawing(false);
-    if (tempMarker) tempMarker.remove();
-    // Curăță layer-ul temporar
-    if (map && map.getSource('drawn-route')) {
-      map.removeLayer('drawn-route-line');
-      map.removeSource('drawn-route');
-    }
     onClose();
   };
 
@@ -115,10 +132,6 @@ export default function DrawRouteModal({ isOpen, onClose, onSave, map, startPoin
           </div>
           <p className="text-black/80 text-sm mb-4">
             Click pe hartă pentru a adăuga puncte. Traseul tău va fi folosit pentru scuter.
-            <br />
-            <span className="text-amber-600 font-semibold">Start: {startPoint[1]}, {startPoint[0]}</span>
-            <br />
-            <span className="text-green-600 font-semibold">Destinație: {destPoint[1]}, {destPoint[0]}</span>
           </p>
           {!isDrawing ? (
             <button
@@ -136,7 +149,7 @@ export default function DrawRouteModal({ isOpen, onClose, onSave, map, startPoin
                   disabled={points.length === 0}
                   className="flex-1 py-3 rounded-xl bg-white/40 border border-white/50 text-black font-semibold disabled:opacity-50"
                 >
-                  Undo ultimul punct
+                  Unde ultimul punct
                 </button>
                 <button
                   onClick={handleSaveRoute}
@@ -147,10 +160,7 @@ export default function DrawRouteModal({ isOpen, onClose, onSave, map, startPoin
               </div>
             </div>
           )}
-          <button
-            onClick={handleCancel}
-            className="w-full mt-3 py-2 text-black/50 text-sm"
-          >
+          <button onClick={handleCancel} className="w-full mt-3 py-2 text-black/50 text-sm">
             Renunță
           </button>
         </div>
