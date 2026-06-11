@@ -16,6 +16,31 @@ function calcBearing(lat1, lon1, lat2, lon2) {
   return (toDeg(Math.atan2(y, x)) + 360) % 360;
 }
 
+function distToRouteMeters(lat, lon, coords) {
+  if (!coords || coords.length < 2) return Infinity;
+  let min = Infinity;
+  for (let i = 0; i < coords.length - 1; i++) {
+    const d = pointToSegMeters(lat, lon, coords[i][1], coords[i][0], coords[i+1][1], coords[i+1][0]);
+    if (d < min) min = d;
+  }
+  return min;
+}
+
+function pointToSegMeters(pLat, pLon, aLat, aLon, bLat, bLon) {
+  const R = 6371000;
+  const toRad = (d) => d * Math.PI / 180;
+  const lat0 = toRad((aLat + bLat) / 2);
+  const ax = R * toRad(aLon) * Math.cos(lat0), ay = R * toRad(aLat);
+  const bx = R * toRad(bLon) * Math.cos(lat0), by = R * toRad(bLat);
+  const px = R * toRad(pLon) * Math.cos(lat0), py = R * toRad(pLat);
+  const dx = bx - ax, dy = by - ay;
+  const len2 = dx*dx + dy*dy;
+  let t = len2 === 0 ? 0 : ((px - ax) * dx + (py - ay) * dy) / len2;
+  t = Math.max(0, Math.min(1, t));
+  const cx = ax + t * dx, cy = ay + t * dy;
+  return Math.hypot(px - cx, py - cy);
+}
+
 const DEFAULT_CENTER = [28.8474, 47.0124];
 
 export function getCustomRoute(destLabel) {
@@ -52,7 +77,7 @@ class WakeLockManager {
   }
 }
 
-// Componenta RouteOverlay (SVG) - simplă, fără trunchiere
+// Componenta RouteOverlay (SVG) - optimizată, fără trunchiere
 function RouteOverlay({ routeCoords, map }) {
   const [points, setPoints] = useState('');
 
@@ -265,8 +290,7 @@ export default function NavigatorApp() {
     }
   }, [userPos, mapReady, following, route, navStarted, compass]);
 
-  // ======== NU MAI EXISTĂ TRUNCHIERE (ruta rămâne întreagă) ========
-  // Am eliminat useEffect-ul care tăia coordonatele.
+  // ======== FĂRĂ TRUNCHIERE (ruta rămâne întreagă) ========
 
   // Elimină layer-ul GeoJSON personalizat
   const removeCustomLayer = useCallback(() => {
@@ -413,7 +437,7 @@ export default function NavigatorApp() {
     }
   }, [route, userPos, compass, drawStandardRoute]);
 
-  // Monitorizare abatere rută (doar pentru rutele standard) și sosirea la destinație
+  // Monitorizare abatere rută și sosire destinație
   useEffect(() => {
     if (!route || !userPos || !navStarted) return;
     if (route.isCustom) return;
