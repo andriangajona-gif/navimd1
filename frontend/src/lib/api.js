@@ -10,11 +10,6 @@ export async function searchStreets(q, location = 'Florești') {
   return data;
 }
 
-export async function getBuildings(streetName, city = 'Florești') {
-  const { data } = await api.get('/buildings', { params: { street_name: streetName, city, lang: 'ro' } });
-  return data;
-}
-
 export async function getRoute(fromLat, fromLon, toLat, toLon, profile = 'driving') {
   const { data } = await api.post('/route', {
     from_lat: fromLat, from_lon: fromLon, to_lat: toLat, to_lon: toLon, profile,
