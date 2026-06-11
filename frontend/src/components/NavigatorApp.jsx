@@ -46,6 +46,7 @@ const DEFAULT_CENTER = [28.8474, 47.0124];
 export function getCustomRoute(destLabel) {
   try {
     const existing = JSON.parse(localStorage.getItem('custom_routes') || '{}');
+    console.log('🔍 getCustomRoute pentru', destLabel, existing[destLabel]);
     return existing[destLabel] || null;
   } catch (e) { return null; }
 }
@@ -305,20 +306,29 @@ export default function NavigatorApp() {
   }, [removeCustomLayer]);
 
   const drawCustomRoute = useCallback((geo) => {
-    if (!mapInstance) return;
+    if (!mapInstance) {
+      console.warn('drawCustomRoute: mapInstance not ready');
+      return;
+    }
+    console.log('drawCustomRoute: încerc să desenez ruta personalizată', geo);
     routeGeomRef.current = geo.coordinates;
     setRouteCoords(null);
     removeCustomLayer();
-    mapInstance.addSource('custom-route-source', {
-      type: 'geojson',
-      data: { type: 'Feature', geometry: geo }
-    });
-    mapInstance.addLayer({
-      id: 'custom-route-layer',
-      type: 'line',
-      source: 'custom-route-source',
-      paint: { 'line-color': '#f59e0b', 'line-width': 8, 'line-opacity': 0.9 }
-    });
+    try {
+      mapInstance.addSource('custom-route-source', {
+        type: 'geojson',
+        data: { type: 'Feature', geometry: geo }
+      });
+      mapInstance.addLayer({
+        id: 'custom-route-layer',
+        type: 'line',
+        source: 'custom-route-source',
+        paint: { 'line-color': '#f59e0b', 'line-width': 8, 'line-opacity': 0.9 }
+      });
+      console.log('Layer portocaliu adăugat cu succes');
+    } catch (err) {
+      console.error('Eroare la adăugarea layer-ului portocaliu:', err);
+    }
   }, [mapInstance, removeCustomLayer]);
 
   const resetAll = useCallback(() => {
@@ -380,6 +390,8 @@ export default function NavigatorApp() {
         map.fitBounds(bounds, { padding: { top: 120, bottom: 240, left: 40, right: 40 }, duration: 800 });
         setFollowing(false);
         return;
+      } else {
+        console.warn('Nu există rută personalizată pentru această destinație, se folosește ruta standard.');
       }
     }
 
@@ -413,7 +425,6 @@ export default function NavigatorApp() {
         padding: { top: 100, bottom: 450, left: 0, right: 0 },
       });
     }
-    // Redesenează ruta la start
     if (route.isCustom && route.geometry) {
       drawCustomRoute(route.geometry);
     } else if (!route.isCustom && route.geometry) {
@@ -421,7 +432,6 @@ export default function NavigatorApp() {
     }
   }, [route, userPos, compass, drawStandardRoute, drawCustomRoute]);
 
-  // Monitorizare abatere și sosire
   useEffect(() => {
     if (!route || !userPos || !navStarted) return;
     if (route.isCustom) return;
