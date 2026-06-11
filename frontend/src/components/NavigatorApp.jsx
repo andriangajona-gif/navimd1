@@ -145,8 +145,6 @@ export default function NavigatorApp() {
   const [following, setFollowing] = useState(true);
   const [navStarted, setNavStarted] = useState(false);
   const [rerouting, setRerouting] = useState(false);
-  const [showSavePrompt, setShowSavePrompt] = useState(false);
-  const [arrivedDest, setArrivedDest] = useState(null);
   const lastReroutedAtRef = useRef(0);
   const offRouteSinceRef = useRef(null);
 
@@ -360,34 +358,12 @@ export default function NavigatorApp() {
     setRoute(null); setRouteCoords(null); setDestination(null);
     setCurrentStep(0); setNavStarted(false);
     offRouteSinceRef.current = null;
-    setShowSavePrompt(false);
-    setArrivedDest(null);
     removeCustomLayer();
   }, [removeCustomLayer]);
 
-  const handleSaveRoute = useCallback(() => {
-    if (arrivedDest && gpsTrackRef.current.length > 5) {
-      saveCustomRoute(arrivedDest.label, gpsTrackRef.current);
-      recordTrip(gpsTrackRef.current, arrivedDest.label);
-    }
-    resetAll();
-  }, [arrivedDest, resetAll]);
-
-  const handleSkipSave = useCallback(() => {
-    if (arrivedDest && gpsTrackRef.current.length > 5) {
-      recordTrip(gpsTrackRef.current, arrivedDest.label);
-    }
-    resetAll();
-  }, [arrivedDest, resetAll]);
-
   const clearRoute = useCallback(() => {
-    if (navStarted && gpsTrackRef.current.length > 5) {
-      setArrivedDest(destination);
-      setShowSavePrompt(true);
-    } else {
-      resetAll();
-    }
-  }, [navStarted, destination, resetAll]);
+    resetAll();
+  }, [resetAll]);
 
   const handleStartDrawing = (dest) => {
     setDrawDestination(dest);
@@ -483,7 +459,7 @@ export default function NavigatorApp() {
     }
   }, [route, userPos, compass, drawStandardRoute]);
 
-  // Monitorizare abatere rută (doar pentru rutele standard)
+  // Monitorizare abatere rută (doar pentru rutele standard) și sosirea la destinație
   useEffect(() => {
     if (!route || !userPos || !navStarted) return;
     if (route.isCustom) return;
@@ -518,16 +494,18 @@ export default function NavigatorApp() {
       offRouteSinceRef.current = null;
     }
     
+    // Verificare sosire la destinație (fără popup, resetare automată)
     if (destination) {
       const dArr = haversine(userPos.lat, userPos.lon, destination.lat, destination.lon);
       if (dArr < 25) {
-        setTimeout(() => {
-          setArrivedDest(destination);
-          setShowSavePrompt(true);
-        }, 2000);
+        // Salvează traseul parcurs în istoric, dar fără a întreba utilizatorul
+        if (gpsTrackRef.current.length > 5) {
+          recordTrip(gpsTrackRef.current, destination.label);
+        }
+        resetAll();
       }
     }
-  }, [userPos, route, currentStep, destination, navStarted, profile, drawStandardRoute, rerouting]);
+  }, [userPos, route, currentStep, destination, navStarted, profile, drawStandardRoute, rerouting, resetAll]);
 
   const recenter = () => {
     if (userPos && mapRef.current) {
@@ -561,26 +539,7 @@ export default function NavigatorApp() {
         </button>
       </div>
 
-      {showSavePrompt && (
-        <div className="absolute inset-0 z-50 bg-black/30 backdrop-blur-sm flex items-center justify-center px-4">
-          <div className="bg-white/30 backdrop-blur-sm border border-white/40 rounded-2xl p-5 shadow-xl w-full max-w-sm">
-            <div className="text-[17px] font-bold text-black drop-shadow-sm mb-2">🎉 Вы прибыли!</div>
-            <div className="text-[14px] text-black/80 mb-5">
-              Сохранить ваш путь к <span className="font-medium text-black/90">{arrivedDest?.label}</span>? Система запомнит его и будет предлагать в будущем.
-            </div>
-            <div className="flex gap-3">
-              <button onClick={handleSkipSave} className="flex-1 py-3 rounded-xl bg-white/40 backdrop-blur-sm border border-white/50 text-black text-[15px] font-medium">
-                Не сохранять
-              </button>
-              <button onClick={handleSaveRoute} className="flex-1 py-3 rounded-xl bg-amber-500 text-white text-[15px] font-semibold">
-                Сохранить
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {route && !showSavePrompt && (
+      {route && (
         <NavigationPanel
           route={route}
           currentStep={currentStep}
