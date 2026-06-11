@@ -77,66 +77,61 @@ class WakeLockManager {
   }
 }
 
-// Componenta RouteOverlay optimizată (păstrată)
+// ========== RouteOverlay optimizat DEFINITIV ==========
 function RouteOverlay({ routeCoords, map }) {
-  const [points, setPoints] = useState('');
-  const frameRef = useRef(null);
-  const lastPointsRef = useRef('');
+  const svgRef = useRef(null);
+  const polylineOuterRef = useRef(null);
+  const polylineInnerRef = useRef(null);
+  const updateTimerRef = useRef(null);
 
   useEffect(() => {
-    if (!map || !routeCoords || routeCoords.length === 0) {
-      setPoints('');
-      return;
-    }
+    if (!map || !routeCoords || routeCoords.length === 0) return;
 
     const updatePoints = () => {
-      if (frameRef.current) cancelAnimationFrame(frameRef.current);
-      frameRef.current = requestAnimationFrame(() => {
-        const newPointsArray = routeCoords.map(([lng, lat]) => {
-          const p = map.project([lng, lat]);
-          return `${p.x},${p.y}`;
-        });
-        const newPoints = newPointsArray.join(' ');
-        if (newPoints !== lastPointsRef.current) {
-          lastPointsRef.current = newPoints;
-          setPoints(newPoints);
-        }
-      });
+      if (!polylineOuterRef.current || !polylineInnerRef.current) return;
+      const points = routeCoords.map(([lng, lat]) => {
+        const p = map.project([lng, lat]);
+        return `${p.x},${p.y}`;
+      }).join(' ');
+      polylineOuterRef.current.setAttribute('points', points);
+      polylineInnerRef.current.setAttribute('points', points);
     };
 
-    let throttleTimer;
-    const throttledUpdate = () => {
-      if (throttleTimer) return;
-      throttleTimer = setTimeout(() => {
+    // Actualizare la sfârșitul mișcării (debounce 100ms)
+    const scheduleUpdate = () => {
+      if (updateTimerRef.current) clearTimeout(updateTimerRef.current);
+      updateTimerRef.current = setTimeout(() => {
         updatePoints();
-        throttleTimer = null;
-      }, 16);
+        updateTimerRef.current = null;
+      }, 100);
     };
 
-    updatePoints();
-    map.on('move', throttledUpdate);
-    map.on('zoom', throttledUpdate);
-    map.on('rotate', throttledUpdate);
-    map.on('pitch', throttledUpdate);
+    updatePoints(); // prima redare
+
+    map.on('move', scheduleUpdate);
+    map.on('zoom', scheduleUpdate);
+    map.on('rotate', scheduleUpdate);
+    map.on('pitch', scheduleUpdate);
 
     return () => {
-      if (frameRef.current) cancelAnimationFrame(frameRef.current);
-      if (throttleTimer) clearTimeout(throttleTimer);
-      map.off('move', throttledUpdate);
-      map.off('zoom', throttledUpdate);
-      map.off('rotate', throttledUpdate);
-      map.off('pitch', throttledUpdate);
+      if (updateTimerRef.current) clearTimeout(updateTimerRef.current);
+      map.off('move', scheduleUpdate);
+      map.off('zoom', scheduleUpdate);
+      map.off('rotate', scheduleUpdate);
+      map.off('pitch', scheduleUpdate);
     };
   }, [map, routeCoords]);
 
-  if (!points || points.length === 0) return null;
+  if (!routeCoords || routeCoords.length < 2) return null;
+
   return (
-    <svg style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', pointerEvents: 'none', zIndex: 10 }}>
-      <polyline points={points} fill="none" stroke="#1d4ed8" strokeWidth="10" strokeOpacity="0.3" strokeLinecap="round" strokeLinejoin="round" />
-      <polyline points={points} fill="none" stroke="#2c7be5" strokeWidth="6" strokeLinecap="round" strokeLinejoin="round" />
+    <svg ref={svgRef} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', pointerEvents: 'none', zIndex: 10 }}>
+      <polyline ref={polylineOuterRef} fill="none" stroke="#1d4ed8" strokeWidth="10" strokeOpacity="0.3" strokeLinecap="round" strokeLinejoin="round" />
+      <polyline ref={polylineInnerRef} fill="none" stroke="#2c7be5" strokeWidth="6" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   );
 }
+// =================================================
 
 export default function NavigatorApp() {
   const mapContainerRef = useRef(null);
@@ -310,6 +305,9 @@ export default function NavigatorApp() {
     }
   }, [userPos, mapReady, following, route, navStarted, compass]);
 
+  // ========== NU MAI EXISTĂ TRUNCHIERE (ruta rămâne întreagă) ==========
+  // Am eliminat useEffect-ul care actualiza routeCoords în funcție de userPos.
+
   // Elimină layer-ul GeoJSON personalizat
   const removeCustomLayer = useCallback(() => {
     if (!mapInstance) return;
@@ -319,7 +317,7 @@ export default function NavigatorApp() {
     }
   }, [mapInstance]);
 
-  // Desenează rută standard (albastră) – se folosește doar pentru setarea routeCoords, nu pentru layer GeoJSON
+  // Desenează rută standard (albastră) – doar setează coordonatele pentru overlay
   const drawStandardRoute = useCallback((geo) => {
     routeGeomRef.current = geo.coordinates;
     setRouteCoords(geo.coordinates);  // actualizează RouteOverlay
@@ -329,7 +327,7 @@ export default function NavigatorApp() {
   // Desenează rută personalizată (portocalie) – creează un layer GeoJSON
   const drawCustomRoute = useCallback((geo) => {
     routeGeomRef.current = geo.coordinates;
-    setRouteCoords(null); // oprește RouteOverlay
+    setRouteCoords(null); // dezactivează overlay-ul SVG
     removeCustomLayer();
     if (!mapInstance) return;
     mapInstance.addSource('custom-route-source', {
@@ -455,7 +453,7 @@ export default function NavigatorApp() {
         padding: { top: 100, bottom: 450, left: 0, right: 0 },
       });
     }
-    // Redesenează ruta standard (asigură-te că routeCoords este setat)
+    // Redesenează ruta standard (asigură-te că overlay-ul este actualizat)
     if (!route.isCustom && route.geometry) {
       drawStandardRoute(route.geometry);
     }
