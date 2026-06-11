@@ -46,6 +46,7 @@ const DEFAULT_CENTER = [28.8474, 47.0124];
 export function getCustomRoute(destLabel) {
   try {
     const existing = JSON.parse(localStorage.getItem('custom_routes') || '{}');
+    console.log('getCustomRoute pentru', destLabel, existing[destLabel]);
     return existing[destLabel] || null;
   } catch (e) { return null; }
 }
@@ -289,8 +290,7 @@ export default function NavigatorApp() {
     }
   }, [userPos, mapReady, following, route, navStarted, compass]);
 
-  // ======== FĂRĂ TRUNCHIERE (ruta rămâne întreagă) ========
-
+  // Elimină layer-ul GeoJSON personalizat
   const removeCustomLayer = useCallback(() => {
     if (!mapInstance) return;
     if (mapInstance.getLayer('custom-route-layer')) {
@@ -299,17 +299,23 @@ export default function NavigatorApp() {
     }
   }, [mapInstance]);
 
+  // Desenează rută standard (albastră) – folosește RouteOverlay
   const drawStandardRoute = useCallback((geo) => {
     routeGeomRef.current = geo.coordinates;
     setRouteCoords(geo.coordinates);
     removeCustomLayer();
   }, [removeCustomLayer]);
 
+  // Desenează rută personalizată (portocalie) – layer GeoJSON
   const drawCustomRoute = useCallback((geo) => {
+    if (!mapInstance) {
+      console.warn('drawCustomRoute: mapInstance not ready');
+      return;
+    }
     routeGeomRef.current = geo.coordinates;
-    setRouteCoords(null);
+    setRouteCoords(null); // dezactivează RouteOverlay
     removeCustomLayer();
-    if (!mapInstance) return;
+    // Adăugăm layer-ul GeoJSON portocaliu
     mapInstance.addSource('custom-route-source', {
       type: 'geojson',
       data: {
@@ -381,7 +387,8 @@ export default function NavigatorApp() {
       const custom = getCustomRoute(dest.label);
       const preferred = getPreferredRoute(dest.label);
       const track = custom?.track || preferred;
-      if (track) {
+      console.log('Ruta personalizată încărcată:', track);
+      if (track && track.length > 0) {
         const fakeRoute = {
           distance: 0, duration: 0,
           geometry: { type: 'LineString', coordinates: track },
@@ -394,9 +401,12 @@ export default function NavigatorApp() {
         map.fitBounds(bounds, { padding: { top: 120, bottom: 240, left: 40, right: 40 }, duration: 800 });
         setFollowing(false);
         return;
+      } else {
+        console.warn('Nu există rută personalizată pentru această destinație, se folosește ruta standard.');
       }
     }
 
+    // Ruta standard (OSRM)
     try {
       const r = await getRoute(userPos.lat, userPos.lon, dest.lat, dest.lon, profile);
       setRoute(r); setCurrentStep(0); setNavStarted(false);
@@ -427,14 +437,18 @@ export default function NavigatorApp() {
         padding: { top: 100, bottom: 450, left: 0, right: 0 },
       });
     }
-    if (!route.isCustom && route.geometry) {
+    // Dacă ruta este personalizată, redesenăm layer-ul GeoJSON pentru siguranță
+    if (route.isCustom && route.geometry) {
+      drawCustomRoute(route.geometry);
+    } else if (!route.isCustom && route.geometry) {
       drawStandardRoute(route.geometry);
     }
-  }, [route, userPos, compass, drawStandardRoute]);
+  }, [route, userPos, compass, drawStandardRoute, drawCustomRoute]);
 
+  // Monitorizare abatere rută și sosire destinație
   useEffect(() => {
     if (!route || !userPos || !navStarted) return;
-    if (route.isCustom) return;
+    if (route.isCustom) return; // pentru rutele personalizate nu facem rerutare automată
     const steps = route.steps || [];
     let nextIdx = currentStep;
     for (let i = currentStep; i < steps.length; i++) {
