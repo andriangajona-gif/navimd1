@@ -1,536 +1,88 @@
-import React, { useEffect, useRef, useState, useCallback } from 'react';
-import maplibregl from 'maplibre-gl';
-import { STYLE_URL, getRoute, formatDistance, formatDuration, haversine, recordTrip, scoreRoute, getPreferredRoute } from '../lib/api';
-import SearchPanel from './SearchPanel';
-import NavigationPanel from './NavigationPanel';
-import DrawRouteModal from './DrawRouteModal';
-import { Locate } from 'lucide-react';
+import React from 'react';
+import { X, Navigation as NavIcon, ArrowUp, ArrowUpLeft, ArrowUpRight, CornerUpLeft, CornerUpRight, RotateCcw, Flag, Play, Loader2 } from 'lucide-react';
+import { formatDistance, formatDuration } from '../lib/api';
 
-function calcBearing(lat1, lon1, lat2, lon2) {
-  const toRad = (d) => d * Math.PI / 180;
-  const toDeg = (r) => r * 180 / Math.PI;
-  const φ1 = toRad(lat1), φ2 = toRad(lat2);
-  const Δλ = toRad(lon2 - lon1);
-  const y = Math.sin(Δλ) * Math.cos(φ2);
-  const x = Math.cos(φ1) * Math.sin(φ2) - Math.sin(φ1) * Math.cos(φ2) * Math.cos(Δλ);
-  return (toDeg(Math.atan2(y, x)) + 360) % 360;
+function maneuverIcon(step) {
+  if (!step) return <ArrowUp />;
+  const t = step.type; const m = step.modifier;
+  if (t === 'arrive') return <Flag />;
+  if (t === 'depart') return <NavIcon />;
+  if (t === 'roundabout' || t === 'rotary') return <RotateCcw />;
+  if (m === 'left' || m === 'sharp left') return <CornerUpLeft />;
+  if (m === 'right' || m === 'sharp right') return <CornerUpRight />;
+  if (m === 'slight left') return <ArrowUpLeft />;
+  if (m === 'slight right') return <ArrowUpRight />;
+  return <ArrowUp />;
 }
 
-function distToRouteMeters(lat, lon, coords) {
-  if (!coords || coords.length < 2) return Infinity;
-  let min = Infinity;
-  for (let i = 0; i < coords.length - 1; i++) {
-    const d = pointToSegMeters(lat, lon, coords[i][1], coords[i][0], coords[i+1][1], coords[i+1][0]);
-    if (d < min) min = d;
-  }
-  return min;
-}
-
-function pointToSegMeters(pLat, pLon, aLat, aLon, bLat, bLon) {
-  const R = 6371000;
-  const toRad = (d) => d * Math.PI / 180;
-  const lat0 = toRad((aLat + bLat) / 2);
-  const ax = R * toRad(aLon) * Math.cos(lat0), ay = R * toRad(aLat);
-  const bx = R * toRad(bLon) * Math.cos(lat0), by = R * toRad(bLat);
-  const px = R * toRad(pLon) * Math.cos(lat0), py = R * toRad(pLat);
-  const dx = bx - ax, dy = by - ay;
-  const len2 = dx*dx + dy*dy;
-  let t = len2 === 0 ? 0 : ((px - ax) * dx + (py - ay) * dy) / len2;
-  t = Math.max(0, Math.min(1, t));
-  const cx = ax + t * dx, cy = ay + t * dy;
-  return Math.hypot(px - cx, py - cy);
-}
-
-const DEFAULT_CENTER = [28.8474, 47.0124];
-
-export function getCustomRoute(destLabel) {
-  try {
-    const existing = JSON.parse(localStorage.getItem('custom_routes') || '{}');
-    return existing[destLabel] || null;
-  } catch (e) { return null; }
-}
-
-function saveCustomRoute(destLabel, track) {
-  try {
-    const existing = JSON.parse(localStorage.getItem('custom_routes') || '{}');
-    existing[destLabel] = { track, savedAt: Date.now() };
-    localStorage.setItem('custom_routes', JSON.stringify(existing));
-  } catch (e) {}
-}
-
-class WakeLockManager {
-  constructor() { this.wakeLock = null; }
-  async acquire() {
-    try {
-      if ('wakeLock' in navigator) {
-        if (this.wakeLock) return true;
-        this.wakeLock = await navigator.wakeLock.request('screen');
-        return true;
-      }
-    } catch (e) {}
-    return false;
-  }
-  async release() {
-    if (this.wakeLock) {
-      try { await this.wakeLock.release(); this.wakeLock = null; } catch (e) {}
-    }
-  }
-}
-
-function RouteOverlay({ routeCoords, map }) {
-  const [points, setPoints] = useState('');
-
-  useEffect(() => {
-    if (!map || !routeCoords || routeCoords.length === 0) {
-      setPoints('');
-      return;
-    }
-
-    const updatePoints = () => {
-      const newPoints = routeCoords.map(([lng, lat]) => {
-        const p = map.project([lng, lat]);
-        return `${p.x},${p.y}`;
-      }).join(' ');
-      setPoints(newPoints);
-    };
-
-    updatePoints();
-    map.on('move', updatePoints);
-    map.on('zoom', updatePoints);
-    map.on('rotate', updatePoints);
-    map.on('pitch', updatePoints);
-
-    return () => {
-      map.off('move', updatePoints);
-      map.off('zoom', updatePoints);
-      map.off('rotate', updatePoints);
-      map.off('pitch', updatePoints);
-    };
-  }, [map, routeCoords]);
-
-  if (!points || points.length === 0) return null;
-  return (
-    <svg style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', pointerEvents: 'none', zIndex: 10 }}>
-      <polyline points={points} fill="none" stroke="#1d4ed8" strokeWidth="10" strokeOpacity="0.3" strokeLinecap="round" strokeLinejoin="round" />
-      <polyline points={points} fill="none" stroke="#2c7be5" strokeWidth="6" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  );
-}
-
-export default function NavigatorApp() {
-  const mapContainerRef = useRef(null);
-  const mapRef = useRef(null);
-  const userMarkerRef = useRef(null);
-  const destMarkerRef = useRef(null);
-  const watchIdRef = useRef(null);
-  const routeGeomRef = useRef(null);
-  const gpsTrackRef = useRef([]);
-  const wakeLockManagerRef = useRef(new WakeLockManager());
-
-  const [mapReady, setMapReady] = useState(false);
-  const [mapInstance, setMapInstance] = useState(null);
-  const [userPos, setUserPos] = useState(null);
-  const [compass, setCompass] = useState(null);
-  const [destination, setDestination] = useState(null);
-  const [route, setRoute] = useState(null);
-  const [routeCoords, setRouteCoords] = useState(null);
-  const [currentStep, setCurrentStep] = useState(0);
-  const [profile] = useState('driving');
-  const [error, setError] = useState(null);
-  const [following, setFollowing] = useState(true);
-  const [navStarted, setNavStarted] = useState(false);
-  const [rerouting, setRerouting] = useState(false);
-  const lastReroutedAtRef = useRef(0);
-  const offRouteSinceRef = useRef(null);
-
-  const [showDrawModal, setShowDrawModal] = useState(false);
-  const [drawDestination, setDrawDestination] = useState(null);
-
-  // Inițializare hartă
-  useEffect(() => {
-    if (mapRef.current) return;
-    const map = new maplibregl.Map({
-      container: mapContainerRef.current,
-      style: STYLE_URL,
-      center: DEFAULT_CENTER,
-      zoom: 12,
-      minZoom: 6,
-      maxZoom: 18,
-      attributionControl: false,
-      pitchWithRotate: true,
-      dragRotate: true,
-      maxBounds: [[24.5, 45.0], [31.5, 49.0]],
-    });
-
-    map.on('load', () => { 
-      setMapReady(true); 
-      setMapInstance(map);
-      try {
-        const layers = map.getStyle().layers;
-        const houseLayers = layers.filter(l => 
-          l.id.includes('house') || 
-          l.id.includes('building-number') || 
-          l.id.includes('address')
-        );
-        houseLayers.forEach(layer => {
-          const layerId = layer.id;
-          map.setLayoutProperty(layerId, 'text-size', [
-            'interpolate', ['linear'], ['zoom'],
-            14, 11,
-            16, 22,
-            17, 32,
-            18, 42
-          ]);
-          map.setLayoutProperty(layerId, 'text-font', ["Metropolis Bold"]);
-          map.setLayoutProperty(layerId, 'text-allow-overlap', true);
-          map.setLayoutProperty(layerId, 'text-ignore-placement', true);
-          map.setPaintProperty(layerId, 'text-halo-width', 3.5);
-          map.setPaintProperty(layerId, 'text-halo-color', '#ffffff');
-          map.setPaintProperty(layerId, 'text-color', '#000000');
-        });
-      } catch (e) {
-        console.warn('Stilizare case eșuată:', e);
-      }
-    });
-
-    map.on('error', (e) => console.warn('map err', e?.error?.message || e));
-    map.on('dragstart', () => setFollowing(false));
-    mapRef.current = map;
-    return () => { map.remove(); mapRef.current = null; };
-  }, []);
-
-  // Compass
-  useEffect(() => {
-    const handler = (e) => {
-      const deg = e.webkitCompassHeading ?? e.alpha;
-      if (deg != null) setCompass(deg);
-    };
-    if (window.DeviceOrientationEvent) {
-      if (typeof DeviceOrientationEvent.requestPermission !== 'function') {
-        window.addEventListener('deviceorientation', handler, true);
-      }
-    }
-    return () => window.removeEventListener('deviceorientation', handler, true);
-  }, []);
-
-  // Geolocație
-  useEffect(() => {
-    if (!('geolocation' in navigator)) return;
-    const onPos = (pos) => {
-      const p = { lat: pos.coords.latitude, lon: pos.coords.longitude, heading: pos.coords.heading };
-      setUserPos(p);
-      if (navStarted) {
-        gpsTrackRef.current.push([pos.coords.longitude, pos.coords.latitude]);
-      }
-    };
-    const onErr = (e) => {
-      console.warn('geoloc err', e.message);
-      setError('Nu s-a putut obține geolocația.');
-    };
-    navigator.geolocation.getCurrentPosition(onPos, onErr, { enableHighAccuracy: true, timeout: 10000 });
-    watchIdRef.current = navigator.geolocation.watchPosition(onPos, onErr, {
-      enableHighAccuracy: true, maximumAge: 1500, timeout: 15000,
-    });
-    return () => { if (watchIdRef.current) navigator.geolocation.clearWatch(watchIdRef.current); };
-  }, [navStarted]);
-
-  // WakeLock
-  useEffect(() => {
-    const wakeLockManager = wakeLockManagerRef.current;
-    if (navStarted) wakeLockManager.acquire();
-    else wakeLockManager.release();
-    return () => { wakeLockManager.release(); };
-  }, [navStarted]);
-
-  useEffect(() => {
-    const handleVisibilityChange = () => {
-      const wakeLockManager = wakeLockManagerRef.current;
-      if (document.visibilityState === 'visible' && navStarted) wakeLockManager.acquire();
-    };
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
-  }, [navStarted]);
-
-  // Actualizare marker utilizator și cameră
-  useEffect(() => {
-    if (!mapReady || !userPos) return;
-    const map = mapRef.current;
-    if (!userMarkerRef.current) {
-      const el = document.createElement('div');
-      el.className = 'user-dot';
-      const core = document.createElement('div');
-      core.className = 'user-dot-core';
-      el.appendChild(core);
-      userMarkerRef.current = new maplibregl.Marker({ element: el, anchor: 'center' })
-        .setLngLat([userPos.lon, userPos.lat]).addTo(map);
-      map.flyTo({ center: [userPos.lon, userPos.lat], zoom: 15, duration: 800 });
-    } else {
-      userMarkerRef.current.setLngLat([userPos.lon, userPos.lat]);
-    }
-    
-    if (following && navStarted && route) {
-      const bearing = compass ?? userPos.heading ?? 0;
-      map.easeTo({
-        center: [userPos.lon, userPos.lat], 
-        zoom: 18,
-        bearing: isNaN(bearing) ? 0 : bearing,
-        pitch: 70, 
-        duration: 500,
-        padding: { top: 100, bottom: 450, left: 0, right: 0 }, 
-      });
-    } else if (following && route) {
-      map.easeTo({ 
-        center: [userPos.lon, userPos.lat], 
-        zoom: 17,
-        bearing: 0,
-        pitch: 0,
-        duration: 600 
-      });
-    }
-  }, [userPos, mapReady, following, route, navStarted, compass]);
-
-  // ======== GESTIONAREA LAYERELOR ========
-  const removeCustomLayer = useCallback(() => {
-    if (!mapInstance) return;
-    if (mapInstance.getLayer('custom-route-layer')) {
-      mapInstance.removeLayer('custom-route-layer');
-      mapInstance.removeSource('custom-route-source');
-    }
-  }, [mapInstance]);
-
-  // Desenează ruta standard (albastră) – folosește SVG RouteOverlay
-  const drawStandardRoute = useCallback((geo) => {
-    if (!geo || !geo.coordinates) return;
-    routeGeomRef.current = geo.coordinates;
-    setRouteCoords(geo.coordinates);
-    removeCustomLayer();
-  }, [removeCustomLayer]);
-
-  // Desenează ruta personalizată (portocalie) – folosește layer GeoJSON
-  const drawCustomRoute = useCallback((geo) => {
-    if (!mapInstance || !geo || !geo.coordinates) return;
-    routeGeomRef.current = geo.coordinates;
-    setRouteCoords(null); // oprește RouteOverlay
-    removeCustomLayer();
-    try {
-      mapInstance.addSource('custom-route-source', {
-        type: 'geojson',
-        data: { type: 'Feature', geometry: geo }
-      });
-      mapInstance.addLayer({
-        id: 'custom-route-layer',
-        type: 'line',
-        source: 'custom-route-source',
-        paint: { 'line-color': '#f59e0b', 'line-width': 8, 'line-opacity': 0.9 }
-      });
-    } catch (err) {
-      console.error('Eroare la adăugarea layer-ului portocaliu:', err);
-    }
-  }, [mapInstance, removeCustomLayer]);
-
-  const resetAll = useCallback(() => {
-    if (destMarkerRef.current) { destMarkerRef.current.remove(); destMarkerRef.current = null; }
-    const map = mapRef.current;
-    if (map) map.easeTo({ pitch: 0, bearing: 0, zoom: 14, duration: 600 });
-    routeGeomRef.current = null;
-    gpsTrackRef.current = [];
-    setRoute(null); setRouteCoords(null); setDestination(null);
-    setCurrentStep(0); setNavStarted(false);
-    offRouteSinceRef.current = null;
-    removeCustomLayer();
-  }, [removeCustomLayer]);
-
-  const clearRoute = useCallback(() => resetAll(), [resetAll]);
-
-  const handleStartDrawing = (dest) => {
-    setDrawDestination(dest);
-    setShowDrawModal(true);
-  };
-
-  const handleSaveDrawnRoute = (points) => {
-    if (!drawDestination) return;
-    const customRoutes = JSON.parse(localStorage.getItem('custom_routes') || '{}');
-    customRoutes[drawDestination.label] = { track: points, savedAt: Date.now(), type: 'drawn' };
-    localStorage.setItem('custom_routes', JSON.stringify(customRoutes));
-    alert('Ruta ta a fost salvată!');
-    setShowDrawModal(false);
-    setDrawDestination(null);
-  };
-
-  const handleSelectDestination = useCallback(async (dest, useCustom = false) => {
-    setError(null);
-    if (!userPos) { setError('Aștept semnal GPS.'); return; }
-    setDestination(dest);
-    const map = mapRef.current;
-    if (destMarkerRef.current) destMarkerRef.current.remove();
-    
-    const el = document.createElement('div');
-    el.className = 'dest-marker';
-    el.innerHTML = '<svg width="28" height="36" viewBox="0 0 24 32" fill="currentColor"><path d="M12 0C5.4 0 0 5.4 0 12c0 8.4 12 20 12 20s12-11.6 12-20C24 5.4 18.6 0 12 0zm0 16c-2.2 0-4-1.8-4-4s1.8-4 4-4 4 1.8 4 4-1.8 4-4 4z"/></svg>';
-    destMarkerRef.current = new maplibregl.Marker({ element: el, anchor: 'bottom' })
-      .setLngLat([dest.lon, dest.lat]).addTo(map);
-
-    if (useCustom) {
-      const custom = getCustomRoute(dest.label);
-      const preferred = getPreferredRoute(dest.label);
-      const track = custom?.track || preferred;
-      if (track && track.length > 0) {
-        const fakeRoute = {
-          distance: 0, duration: 0,
-          geometry: { type: 'LineString', coordinates: track },
-          steps: [{ distance: 0, duration: 0, name: '', instruction: 'Urmează ruta ta personală', type: 'depart', modifier: '', location: track[0] }],
-          isCustom: true
-        };
-        setRoute(fakeRoute); setCurrentStep(0); setNavStarted(false);
-        drawCustomRoute(fakeRoute.geometry);
-        // Centrează harta pe traseu
-        const bounds = track.reduce((b, c) => b.extend(c), new maplibregl.LngLatBounds(track[0], track[0]));
-        map.fitBounds(bounds, { padding: { top: 120, bottom: 240, left: 40, right: 40 }, duration: 800 });
-        setFollowing(false);
-        return;
-      }
-    }
-
-    // Ruta standard
-    try {
-      const r = await getRoute(userPos.lat, userPos.lon, dest.lat, dest.lon, profile);
-      setRoute(r); setCurrentStep(0); setNavStarted(false);
-      drawStandardRoute(r.geometry);
-      const coords = r.geometry.coordinates;
-      const bounds = coords.reduce((b, c) => b.extend(c), new maplibregl.LngLatBounds(coords[0], coords[0]));
-      map.fitBounds(bounds, { padding: { top: 120, bottom: 240, left: 40, right: 40 }, duration: 800 });
-      setFollowing(false);
-    } catch (e) {
-      setError('Nu s-a putut construi ruta.');
-    }
-  }, [userPos, drawStandardRoute, drawCustomRoute, profile]);
-
-  const startNavigation = useCallback(() => {
-    if (!route || !userPos) return;
-    gpsTrackRef.current = [];
-    setNavStarted(true);
-    setFollowing(true);
-    offRouteSinceRef.current = null;
-    const map = mapRef.current;
-    if (map) {
-      map.easeTo({
-        center: [userPos.lon, userPos.lat], 
-        zoom: 18,
-        bearing: compass ?? userPos.heading ?? 0,
-        pitch: 70,
-        duration: 900,
-        padding: { top: 100, bottom: 450, left: 0, right: 0 },
-      });
-    }
-    // Redesenează ruta la start (asigură-te că este vizibilă)
-    if (route.isCustom && route.geometry) {
-      drawCustomRoute(route.geometry);
-    } else if (!route.isCustom && route.geometry) {
-      drawStandardRoute(route.geometry);
-    }
-  }, [route, userPos, compass, drawStandardRoute, drawCustomRoute]);
-
-  // Monitorizare abatere rută și sosire destinație (doar pentru rutele standard)
-  useEffect(() => {
-    if (!route || !userPos || !navStarted) return;
-    if (route.isCustom) return;
-    const steps = route.steps || [];
-    let nextIdx = currentStep;
-    for (let i = currentStep; i < steps.length; i++) {
-      const loc = steps[i].location;
-      if (!loc) continue;
-      const d = haversine(userPos.lat, userPos.lon, loc[1], loc[0]);
-      if (d < 30 && i + 1 < steps.length) nextIdx = i + 1;
-    }
-    if (nextIdx !== currentStep) setCurrentStep(nextIdx);
-
-    const coords = route.geometry?.coordinates || [];
-    const distOff = distToRouteMeters(userPos.lat, userPos.lon, coords);
-    const now = Date.now();
-    
-    if (distOff > 40) {
-      if (offRouteSinceRef.current == null) offRouteSinceRef.current = now;
-      const elapsed = now - offRouteSinceRef.current;
-      const canReroute = now - lastReroutedAtRef.current > 8000;
-      if (elapsed > 3000 && canReroute && destination && !rerouting) {
-        lastReroutedAtRef.current = now;
-        offRouteSinceRef.current = null;
-        setRerouting(true);
-        getRoute(userPos.lat, userPos.lon, destination.lat, destination.lon, profile)
-          .then((r) => { setRoute(r); setCurrentStep(0); drawStandardRoute(r.geometry); })
-          .catch(() => {})
-          .finally(() => setRerouting(false));
-      }
-    } else {
-      offRouteSinceRef.current = null;
-    }
-    
-    if (destination) {
-      const dArr = haversine(userPos.lat, userPos.lon, destination.lat, destination.lon);
-      if (dArr < 25) {
-        if (gpsTrackRef.current.length > 5) {
-          recordTrip(gpsTrackRef.current, destination.label);
-        }
-        resetAll();
-      }
-    }
-  }, [userPos, route, currentStep, destination, navStarted, profile, drawStandardRoute, rerouting, resetAll]);
-
-  const recenter = () => {
-    if (userPos && mapRef.current) {
-      mapRef.current.flyTo({ center: [userPos.lon, userPos.lat], zoom: 16, duration: 600 });
-      setFollowing(true);
-    }
-  };
+export default function NavigationPanel({ route, currentStep, destination, onCancel, onFinish, navStarted, onStart, rerouting }) {
+  const step = route?.steps?.[currentStep] || route?.steps?.[0];
+  const remainingSteps = route?.steps?.slice(currentStep) || [];
+  const remainingDist = remainingSteps.reduce((a, s) => a + (s.distance || 0), 0);
+  const remainingDur = remainingSteps.reduce((a, s) => a + (s.duration || 0), 0);
 
   return (
-    <div className="App" style={{ position: 'relative' }}>
-      <div ref={mapContainerRef} className="absolute inset-0" />
-      {mapInstance && routeCoords && route && !route.isCustom && (
-        <RouteOverlay routeCoords={routeCoords} map={mapInstance} />
-      )}
-      {!route && (
-        <SearchPanel
-          onSelectDestination={handleSelectDestination}
-          userPos={userPos}
-          getCustomRoute={getCustomRoute}
-          getPreferredRoute={getPreferredRoute}
-          onDrawRoute={handleStartDrawing}
-        />
+    <>
+      {navStarted && step && (
+        <div className="absolute top-2 left-2 right-2 z-30">
+          <div className="bg-white/20 backdrop-blur-sm border border-white/30 rounded-2xl shadow-lg px-3 py-2.5 flex items-center gap-2.5">
+            <div className="w-11 h-11 rounded-xl bg-amber-500/80 flex items-center justify-center text-white shrink-0">
+              {React.cloneElement(maneuverIcon(step), { size: 24 })}
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="text-[12px] text-amber-700 font-semibold leading-none mb-0.5">
+                через {formatDistance(step.distance)}
+              </div>
+              <div className="text-[14px] leading-tight line-clamp-2 text-black font-medium">{step.instruction}</div>
+            </div>
+          </div>
+          {rerouting && (
+            <div className="mt-2 mx-auto w-fit bg-black/40 backdrop-blur-sm text-white text-[12px] rounded-full px-3 py-1.5 flex items-center gap-2">
+              <Loader2 size={14} className="animate-spin" />
+              Перестраиваю маршрут…
+            </div>
+          )}
+        </div>
       )}
 
-      <div className="absolute right-3 bottom-48 z-30 flex flex-col gap-2">
-        <button
-          onClick={recenter}
-          className="w-11 h-11 rounded-full bg-white/30 backdrop-blur-sm border border-white/40 shadow-md flex items-center justify-center text-black/80 active:scale-95 transition-transform"
-        >
-          <Locate size={20} />
-        </button>
+      <div className="absolute bottom-0 left-0 right-0 z-30 bg-white/20 backdrop-blur-sm border-t border-white/30 rounded-t-2xl px-3 pt-3 pb-[max(env(safe-area-inset-bottom),12px)]">
+        {!navStarted ? (
+          <>
+            <div className="flex items-start justify-between gap-2 mb-3 min-w-0">
+              <div className="flex-1 min-w-0">
+                <div className="text-[11px] text-black/70 leading-none mb-1">Маршрут</div>
+                <div className="flex items-baseline gap-2 flex-wrap">
+                  <div className="text-[22px] font-bold text-black leading-none">{formatDuration(remainingDur)}</div>
+                  <div className="text-[14px] text-black/70 leading-none">{formatDistance(remainingDist)}</div>
+                </div>
+                {destination?.label && (
+                  <div className="text-[12px] text-black/60 truncate mt-1">{destination.label}</div>
+                )}
+              </div>
+              <button onClick={onCancel} className="w-9 h-9 rounded-full bg-black/10 border border-black/20 flex items-center justify-center text-black shrink-0">
+                <X size={18} />
+              </button>
+            </div>
+            <button onClick={onStart} className="w-full py-3.5 rounded-xl bg-amber-500 text-white font-semibold flex items-center justify-center gap-2">
+              <Play size={20} fill="currentColor" /> Старт
+            </button>
+          </>
+        ) : (
+          <div className="flex items-center justify-between gap-2 min-w-0">
+            <div className="flex-1 min-w-0">
+              <div className="text-[11px] text-black/70 leading-none mb-1">До цели</div>
+              <div className="flex items-baseline gap-2 flex-wrap">
+                <div className="text-[18px] font-bold text-black leading-none">{formatDuration(remainingDur)}</div>
+                <div className="text-[13px] text-black/70 leading-none">{formatDistance(remainingDist)}</div>
+              </div>
+              {destination?.label && <div className="text-[11px] text-black/60 truncate mt-1">{destination.label}</div>}
+            </div>
+            <button onClick={onFinish || onCancel} className="px-3.5 py-2.5 rounded-xl bg-red-500 text-white text-[13px] font-semibold">
+              Завершить
+            </button>
+          </div>
+        )}
       </div>
-
-      {route && (
-        <NavigationPanel
-          route={route}
-          currentStep={currentStep}
-          destination={destination}
-          onCancel={clearRoute}
-          onFinish={clearRoute}
-          navStarted={navStarted}
-          onStart={startNavigation}
-          rerouting={rerouting}
-        />
-      )}
-
-      {showDrawModal && mapInstance && drawDestination && (
-        <DrawRouteModal
-          isOpen={showDrawModal}
-          onClose={() => setShowDrawModal(false)}
-          onSave={handleSaveDrawnRoute}
-          map={mapInstance}
-          startPoint={userPos ? [userPos.lon, userPos.lat] : DEFAULT_CENTER}
-          destPoint={[drawDestination.lon, drawDestination.lat]}
-        />
-      )}
-    </div>
+    </>
   );
 }
