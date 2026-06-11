@@ -77,46 +77,54 @@ class WakeLockManager {
   }
 }
 
-// Componenta RouteOverlay (SVG) - optimizată, fără trunchiere
+// ========== COMPONENTA ROUTEOVERLAY OPTIMIZATĂ ==========
+// Folosește referințe directe către elemente SVG și requestAnimationFrame
 function RouteOverlay({ routeCoords, map }) {
-  const [points, setPoints] = useState('');
+  const outerRef = useRef(null);
+  const innerRef = useRef(null);
+  const rafRef = useRef(null);
 
   useEffect(() => {
-    if (!map || !routeCoords || routeCoords.length === 0) {
-      setPoints('');
-      return;
-    }
+    if (!map || !routeCoords || routeCoords.length === 0) return;
 
     const updatePoints = () => {
-      const newPoints = routeCoords.map(([lng, lat]) => {
+      if (!outerRef.current || !innerRef.current) return;
+      const points = routeCoords.map(([lng, lat]) => {
         const p = map.project([lng, lat]);
         return `${p.x},${p.y}`;
       }).join(' ');
-      setPoints(newPoints);
+      outerRef.current.setAttribute('points', points);
+      innerRef.current.setAttribute('points', points);
     };
 
-    updatePoints();
-    map.on('move', updatePoints);
-    map.on('zoom', updatePoints);
-    map.on('rotate', updatePoints);
-    map.on('pitch', updatePoints);
+    const handleMove = () => {
+      if (rafRef.current) cancelAnimationFrame(rafRef.current);
+      rafRef.current = requestAnimationFrame(updatePoints);
+    };
+
+    updatePoints(); // redare inițială
+    map.on('move', handleMove);
+    map.on('zoom', handleMove);
+    map.on('rotate', handleMove);
+    map.on('pitch', handleMove);
 
     return () => {
-      map.off('move', updatePoints);
-      map.off('zoom', updatePoints);
-      map.off('rotate', updatePoints);
-      map.off('pitch', updatePoints);
+      if (rafRef.current) cancelAnimationFrame(rafRef.current);
+      map.off('move', handleMove);
+      map.off('zoom', handleMove);
+      map.off('rotate', handleMove);
+      map.off('pitch', handleMove);
     };
   }, [map, routeCoords]);
 
-  if (!points || points.length === 0) return null;
   return (
     <svg style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', pointerEvents: 'none', zIndex: 10 }}>
-      <polyline points={points} fill="none" stroke="#1d4ed8" strokeWidth="10" strokeOpacity="0.3" strokeLinecap="round" strokeLinejoin="round" />
-      <polyline points={points} fill="none" stroke="#2c7be5" strokeWidth="6" strokeLinecap="round" strokeLinejoin="round" />
+      <polyline ref={outerRef} fill="none" stroke="#1d4ed8" strokeWidth="10" strokeOpacity="0.3" strokeLinecap="round" strokeLinejoin="round" />
+      <polyline ref={innerRef} fill="none" stroke="#2c7be5" strokeWidth="6" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   );
 }
+// =======================================================
 
 export default function NavigatorApp() {
   const mapContainerRef = useRef(null);
@@ -292,7 +300,7 @@ export default function NavigatorApp() {
 
   // ======== FĂRĂ TRUNCHIERE (ruta rămâne întreagă) ========
 
-  // Elimină layer-ul GeoJSON personalizat
+  // Elimină layer-ul GeoJSON personalizat (pentru rutele desenate)
   const removeCustomLayer = useCallback(() => {
     if (!mapInstance) return;
     if (mapInstance.getLayer('custom-route-layer')) {
@@ -301,7 +309,7 @@ export default function NavigatorApp() {
     }
   }, [mapInstance]);
 
-  // Desenează rută standard (albastră) – setează coordonatele pentru overlay
+  // Desenează rută standard (albastră) – doar setează coordonatele pentru overlay
   const drawStandardRoute = useCallback((geo) => {
     routeGeomRef.current = geo.coordinates;
     setRouteCoords(geo.coordinates);
