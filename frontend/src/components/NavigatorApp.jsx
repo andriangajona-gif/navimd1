@@ -248,51 +248,67 @@ export default function NavigatorApp() {
     }
   }, [userPos, mapReady, following, route, navStarted, compass]);
 
-  // ========== GESTIONAREA LAYERELOR GEOJSON ==========
+  // ========== FUNCȚII PENTRU RUTE ==========
   const removeAllRouteLayers = useCallback(() => {
     if (!mapInstance) return;
-    if (mapInstance.getLayer('standard-route-layer')) {
-      mapInstance.removeLayer('standard-route-layer');
-      mapInstance.removeSource('standard-route-source');
-    }
-    if (mapInstance.getLayer('custom-route-layer')) {
-      mapInstance.removeLayer('custom-route-layer');
-      mapInstance.removeSource('custom-route-source');
+    try {
+      if (mapInstance.getLayer('standard-route-layer')) {
+        mapInstance.removeLayer('standard-route-layer');
+        mapInstance.removeSource('standard-route-source');
+      }
+      if (mapInstance.getLayer('custom-route-layer')) {
+        mapInstance.removeLayer('custom-route-layer');
+        mapInstance.removeSource('custom-route-source');
+      }
+    } catch (err) {
+      console.warn('removeAllRouteLayers', err);
     }
   }, [mapInstance]);
 
-  // Desenează rută standard (albastră) – layer GeoJSON
   const drawStandardRoute = useCallback((geo) => {
-    if (!mapInstance || !geo || !geo.coordinates) return;
-    routeGeomRef.current = geo.coordinates;
+    if (!mapInstance || !geo || !geo.coordinates || geo.coordinates.length < 2) {
+      console.warn('drawStandardRoute: invalid geo', geo);
+      return;
+    }
     removeAllRouteLayers();
-    mapInstance.addSource('standard-route-source', {
-      type: 'geojson',
-      data: { type: 'Feature', geometry: geo }
-    });
-    mapInstance.addLayer({
-      id: 'standard-route-layer',
-      type: 'line',
-      source: 'standard-route-source',
-      paint: { 'line-color': '#2c7be5', 'line-width': 6, 'line-opacity': 0.9 }
-    });
+    try {
+      mapInstance.addSource('standard-route-source', {
+        type: 'geojson',
+        data: { type: 'Feature', geometry: geo }
+      });
+      mapInstance.addLayer({
+        id: 'standard-route-layer',
+        type: 'line',
+        source: 'standard-route-source',
+        paint: { 'line-color': '#2c7be5', 'line-width': 6, 'line-opacity': 0.9 }
+      });
+      console.log('Ruta standard desenată (albastră)');
+    } catch (err) {
+      console.error('drawStandardRoute error', err);
+    }
   }, [mapInstance, removeAllRouteLayers]);
 
-  // Desenează rută personalizată (portocalie) – layer GeoJSON
   const drawCustomRoute = useCallback((geo) => {
-    if (!mapInstance || !geo || !geo.coordinates) return;
-    routeGeomRef.current = geo.coordinates;
+    if (!mapInstance || !geo || !geo.coordinates || geo.coordinates.length < 2) {
+      console.warn('drawCustomRoute: invalid geo', geo);
+      return;
+    }
     removeAllRouteLayers();
-    mapInstance.addSource('custom-route-source', {
-      type: 'geojson',
-      data: { type: 'Feature', geometry: geo }
-    });
-    mapInstance.addLayer({
-      id: 'custom-route-layer',
-      type: 'line',
-      source: 'custom-route-source',
-      paint: { 'line-color': '#f59e0b', 'line-width': 8, 'line-opacity': 0.9 }
-    });
+    try {
+      mapInstance.addSource('custom-route-source', {
+        type: 'geojson',
+        data: { type: 'Feature', geometry: geo }
+      });
+      mapInstance.addLayer({
+        id: 'custom-route-layer',
+        type: 'line',
+        source: 'custom-route-source',
+        paint: { 'line-color': '#f59e0b', 'line-width': 8, 'line-opacity': 0.9 }
+      });
+      console.log('Ruta personalizată desenată (portocalie)');
+    } catch (err) {
+      console.error('drawCustomRoute error', err);
+    }
   }, [mapInstance, removeAllRouteLayers]);
 
   const resetAll = useCallback(() => {
@@ -359,7 +375,7 @@ export default function NavigatorApp() {
       }
     }
 
-    // Ruta standard (OSRM)
+    // Ruta standard
     try {
       const r = await getRoute(userPos.lat, userPos.lon, dest.lat, dest.lon, profile);
       setRoute(r); setCurrentStep(0); setNavStarted(false);
@@ -390,7 +406,6 @@ export default function NavigatorApp() {
         padding: { top: 100, bottom: 450, left: 0, right: 0 },
       });
     }
-    // Redesenează ruta la start pentru siguranță
     if (route.isCustom && route.geometry) {
       drawCustomRoute(route.geometry);
     } else if (!route.isCustom && route.geometry) {
