@@ -77,53 +77,45 @@ class WakeLockManager {
   }
 }
 
-// ========== ROUTEOVERLAY CU REQUESTANIMATIONFRAME (fără întârziere) ==========
 function RouteOverlay({ routeCoords, map }) {
-  const outerRef = useRef(null);
-  const innerRef = useRef(null);
-  const rafRef = useRef(null);
+  const [points, setPoints] = useState('');
 
   useEffect(() => {
-    if (!map || !routeCoords || routeCoords.length === 0) return;
+    if (!map || !routeCoords || routeCoords.length === 0) {
+      setPoints('');
+      return;
+    }
 
     const updatePoints = () => {
-      if (!outerRef.current || !innerRef.current) return;
-      const points = routeCoords.map(([lng, lat]) => {
+      const newPoints = routeCoords.map(([lng, lat]) => {
         const p = map.project([lng, lat]);
         return `${p.x},${p.y}`;
       }).join(' ');
-      outerRef.current.setAttribute('points', points);
-      innerRef.current.setAttribute('points', points);
-    };
-
-    const handleMove = () => {
-      if (rafRef.current) cancelAnimationFrame(rafRef.current);
-      rafRef.current = requestAnimationFrame(updatePoints);
+      setPoints(newPoints);
     };
 
     updatePoints();
-    map.on('move', handleMove);
-    map.on('zoom', handleMove);
-    map.on('rotate', handleMove);
-    map.on('pitch', handleMove);
+    map.on('move', updatePoints);
+    map.on('zoom', updatePoints);
+    map.on('rotate', updatePoints);
+    map.on('pitch', updatePoints);
 
     return () => {
-      if (rafRef.current) cancelAnimationFrame(rafRef.current);
-      map.off('move', handleMove);
-      map.off('zoom', handleMove);
-      map.off('rotate', handleMove);
-      map.off('pitch', handleMove);
+      map.off('move', updatePoints);
+      map.off('zoom', updatePoints);
+      map.off('rotate', updatePoints);
+      map.off('pitch', updatePoints);
     };
   }, [map, routeCoords]);
 
+  if (!points || points.length === 0) return null;
   return (
     <svg style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', pointerEvents: 'none', zIndex: 10 }}>
-      <polyline ref={outerRef} fill="none" stroke="#1d4ed8" strokeWidth="10" strokeOpacity="0.3" strokeLinecap="round" strokeLinejoin="round" />
-      <polyline ref={innerRef} fill="none" stroke="#2c7be5" strokeWidth="6" strokeLinecap="round" strokeLinejoin="round" />
+      <polyline points={points} fill="none" stroke="#1d4ed8" strokeWidth="10" strokeOpacity="0.3" strokeLinecap="round" strokeLinejoin="round" />
+      <polyline points={points} fill="none" stroke="#2c7be5" strokeWidth="6" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   );
 }
-// =======================================================================
 
 export default function NavigatorApp() {
   const mapContainerRef = useRef(null);
@@ -297,7 +289,8 @@ export default function NavigatorApp() {
     }
   }, [userPos, mapReady, following, route, navStarted, compass]);
 
-  // Elimină layer-ul GeoJSON personalizat (pentru rutele desenate)
+  // ======== FĂRĂ TRUNCHIERE (ruta rămâne întreagă) ========
+
   const removeCustomLayer = useCallback(() => {
     if (!mapInstance) return;
     if (mapInstance.getLayer('custom-route-layer')) {
@@ -306,14 +299,12 @@ export default function NavigatorApp() {
     }
   }, [mapInstance]);
 
-  // Desenează rută standard (albastră) – doar setează coordonatele pentru overlay
   const drawStandardRoute = useCallback((geo) => {
     routeGeomRef.current = geo.coordinates;
     setRouteCoords(geo.coordinates);
     removeCustomLayer();
   }, [removeCustomLayer]);
 
-  // Desenează rută personalizată (portocalie) – creează un layer GeoJSON
   const drawCustomRoute = useCallback((geo) => {
     routeGeomRef.current = geo.coordinates;
     setRouteCoords(null);
@@ -436,13 +427,11 @@ export default function NavigatorApp() {
         padding: { top: 100, bottom: 450, left: 0, right: 0 },
       });
     }
-    // Redesenează ruta standard (asigură-te că overlay-ul este actualizat)
     if (!route.isCustom && route.geometry) {
       drawStandardRoute(route.geometry);
     }
   }, [route, userPos, compass, drawStandardRoute]);
 
-  // Monitorizare abatere rută și sosire destinație
   useEffect(() => {
     if (!route || !userPos || !navStarted) return;
     if (route.isCustom) return;
