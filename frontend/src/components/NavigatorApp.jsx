@@ -77,11 +77,11 @@ class WakeLockManager {
   }
 }
 
-// ========== ROUTEOVERLAY OPTIMIZATĂ (SVG cu ref și raf) ==========
+// ========== ROUTEOVERLAY OPTIMIZATĂ (doar la sfârșitul mișcării) ==========
 function RouteOverlay({ routeCoords, map }) {
   const outerRef = useRef(null);
   const innerRef = useRef(null);
-  const rafRef = useRef(null);
+  const updateTimeoutRef = useRef(null);
 
   useEffect(() => {
     if (!map || !routeCoords || routeCoords.length === 0) return;
@@ -96,23 +96,24 @@ function RouteOverlay({ routeCoords, map }) {
       innerRef.current.setAttribute('points', points);
     };
 
-    const handleMove = () => {
-      if (rafRef.current) cancelAnimationFrame(rafRef.current);
-      rafRef.current = requestAnimationFrame(updatePoints);
+    // Actualizare la sfârșitul mișcării (debounce 150ms)
+    const scheduleUpdate = () => {
+      if (updateTimeoutRef.current) clearTimeout(updateTimeoutRef.current);
+      updateTimeoutRef.current = setTimeout(updatePoints, 150);
     };
 
-    updatePoints();
-    map.on('move', handleMove);
-    map.on('zoom', handleMove);
-    map.on('rotate', handleMove);
-    map.on('pitch', handleMove);
+    updatePoints(); // redare inițială
+    map.on('move', scheduleUpdate);
+    map.on('zoom', scheduleUpdate);
+    map.on('rotate', scheduleUpdate);
+    map.on('pitch', scheduleUpdate);
 
     return () => {
-      if (rafRef.current) cancelAnimationFrame(rafRef.current);
-      map.off('move', handleMove);
-      map.off('zoom', handleMove);
-      map.off('rotate', handleMove);
-      map.off('pitch', handleMove);
+      if (updateTimeoutRef.current) clearTimeout(updateTimeoutRef.current);
+      map.off('move', scheduleUpdate);
+      map.off('zoom', scheduleUpdate);
+      map.off('rotate', scheduleUpdate);
+      map.off('pitch', scheduleUpdate);
     };
   }, [map, routeCoords]);
 
