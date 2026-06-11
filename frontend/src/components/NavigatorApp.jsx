@@ -78,41 +78,37 @@ class WakeLockManager {
 }
 
 function RouteOverlay({ routeCoords, map }) {
-  const [points, setPoints] = useState('');
+  const [points, setPoints] = useState([]);
 
   useEffect(() => {
     if (!map || !routeCoords || routeCoords.length === 0) {
-      setPoints('');
+      setPoints([]);
       return;
     }
-
-    const updatePoints = () => {
-      const newPoints = routeCoords.map(([lng, lat]) => {
+    const update = () => {
+      setPoints(routeCoords.map(([lng, lat]) => {
         const p = map.project([lng, lat]);
         return `${p.x},${p.y}`;
-      }).join(' ');
-      setPoints(newPoints);
+      }));
     };
-
-    updatePoints();
-    map.on('move', updatePoints);
-    map.on('zoom', updatePoints);
-    map.on('rotate', updatePoints);
-    map.on('pitch', updatePoints);
-
+    update();
+    map.on('move', update);
+    map.on('zoom', update);
+    map.on('rotate', update);
+    map.on('pitch', update);
     return () => {
-      map.off('move', updatePoints);
-      map.off('zoom', updatePoints);
-      map.off('rotate', updatePoints);
-      map.off('pitch', updatePoints);
+      map.off('move', update);
+      map.off('zoom', update);
+      map.off('rotate', update);
+      map.off('pitch', update);
     };
   }, [map, routeCoords]);
 
-  if (!points || points.length === 0) return null;
+  if (points.length < 2) return null;
   return (
     <svg style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', pointerEvents: 'none', zIndex: 10 }}>
-      <polyline points={points} fill="none" stroke="#1d4ed8" strokeWidth="10" strokeOpacity="0.3" strokeLinecap="round" strokeLinejoin="round" />
-      <polyline points={points} fill="none" stroke="#2c7be5" strokeWidth="6" strokeLinecap="round" strokeLinejoin="round" />
+      <polyline points={points.join(' ')} fill="none" stroke="#1d4ed8" strokeWidth="10" strokeOpacity="0.3" strokeLinecap="round" strokeLinejoin="round" />
+      <polyline points={points.join(' ')} fill="none" stroke="#2c7be5" strokeWidth="6" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   );
 }
@@ -140,6 +136,8 @@ export default function NavigatorApp() {
   const [following, setFollowing] = useState(true);
   const [navStarted, setNavStarted] = useState(false);
   const [rerouting, setRerouting] = useState(false);
+  const [showSavePrompt, setShowSavePrompt] = useState(false);
+  const [arrivedDest, setArrivedDest] = useState(null);
   const lastReroutedAtRef = useRef(0);
   const offRouteSinceRef = useRef(null);
 
@@ -289,7 +287,21 @@ export default function NavigatorApp() {
     }
   }, [userPos, mapReady, following, route, navStarted, compass]);
 
-  // ======== GESTIONAREA LAYERELOR ========
+  // Trunchiere traseu (doar pentru rutele standard)
+  useEffect(() => {
+    if (!userPos || !routeGeomRef.current || !navStarted) return;
+    if (route && route.isCustom) return;
+    const coords = routeGeomRef.current;
+    let closestIdx = 0;
+    let minDist = Infinity;
+    for (let i = 0; i < coords.length - 1; i++) {
+      const d = pointToSegMeters(userPos.lat, userPos.lon, coords[i][1], coords[i][0], coords[i+1][1], coords[i+1][0]);
+      if (d < minDist) { minDist = d; closestIdx = i; }
+    }
+    setRouteCoords(coords.slice(closestIdx));
+  }, [userPos, navStarted, route]);
+
+  // Elimină layer-ul GeoJSON personalizat
   const removeCustomLayer = useCallback(() => {
     if (!mapInstance) return;
     if (mapInstance.getLayer('custom-route-layer')) {
@@ -298,34 +310,36 @@ export default function NavigatorApp() {
     }
   }, [mapInstance]);
 
-  // Desenează rută standard (albastră) – folosește SVG RouteOverlay
+  // Desenează rută standard (albastră) – setează coordonatele pentru overlay
   const drawStandardRoute = useCallback((geo) => {
-    if (!geo || !geo.coordinates) return;
     routeGeomRef.current = geo.coordinates;
     setRouteCoords(geo.coordinates);
     removeCustomLayer();
   }, [removeCustomLayer]);
 
-  // Desenează rută personalizată (portocalie) – folosește layer GeoJSON
+  // Desenează rută personalizată (portocalie) – creează un layer GeoJSON
   const drawCustomRoute = useCallback((geo) => {
-    if (!mapInstance || !geo || !geo.coordinates) return;
     routeGeomRef.current = geo.coordinates;
-    setRouteCoords(null);
+    setRouteCoords(null); // dezactivează overlay-ul SVG
     removeCustomLayer();
-    try {
-      mapInstance.addSource('custom-route-source', {
-        type: 'geojson',
-        data: { type: 'Feature', geometry: geo }
-      });
-      mapInstance.addLayer({
-        id: 'custom-route-layer',
-        type: 'line',
-        source: 'custom-route-source',
-        paint: { 'line-color': '#f59e0b', 'line-width': 8, 'line-opacity': 0.9 }
-      });
-    } catch (err) {
-      console.error('Eroare la adăugarea layer-ului portocaliu:', err);
-    }
+    if (!mapInstance) return;
+    mapInstance.addSource('custom-route-source', {
+      type: 'geojson',
+      data: {
+        type: 'Feature',
+        geometry: geo
+      }
+    });
+    mapInstance.addLayer({
+      id: 'custom-route-layer',
+      type: 'line',
+      source: 'custom-route-source',
+      paint: {
+        'line-color': '#f59e0b',
+        'line-width': 8,
+        'line-opacity': 0.9
+      }
+    });
   }, [mapInstance, removeCustomLayer]);
 
   const resetAll = useCallback(() => {
@@ -337,10 +351,34 @@ export default function NavigatorApp() {
     setRoute(null); setRouteCoords(null); setDestination(null);
     setCurrentStep(0); setNavStarted(false);
     offRouteSinceRef.current = null;
+    setShowSavePrompt(false);
+    setArrivedDest(null);
     removeCustomLayer();
   }, [removeCustomLayer]);
 
-  const clearRoute = useCallback(() => resetAll(), [resetAll]);
+  const handleSaveRoute = useCallback(() => {
+    if (arrivedDest && gpsTrackRef.current.length > 5) {
+      saveCustomRoute(arrivedDest.label, gpsTrackRef.current);
+      recordTrip(gpsTrackRef.current, arrivedDest.label);
+    }
+    resetAll();
+  }, [arrivedDest, resetAll]);
+
+  const handleSkipSave = useCallback(() => {
+    if (arrivedDest && gpsTrackRef.current.length > 5) {
+      recordTrip(gpsTrackRef.current, arrivedDest.label);
+    }
+    resetAll();
+  }, [arrivedDest, resetAll]);
+
+  const clearRoute = useCallback(() => {
+    if (navStarted && gpsTrackRef.current.length > 5) {
+      setArrivedDest(destination);
+      setShowSavePrompt(true);
+    } else {
+      resetAll();
+    }
+  }, [navStarted, destination, resetAll]);
 
   const handleStartDrawing = (dest) => {
     setDrawDestination(dest);
@@ -350,7 +388,11 @@ export default function NavigatorApp() {
   const handleSaveDrawnRoute = (points) => {
     if (!drawDestination) return;
     const customRoutes = JSON.parse(localStorage.getItem('custom_routes') || '{}');
-    customRoutes[drawDestination.label] = { track: points, savedAt: Date.now(), type: 'drawn' };
+    customRoutes[drawDestination.label] = {
+      track: points,
+      savedAt: Date.now(),
+      type: 'drawn'
+    };
     localStorage.setItem('custom_routes', JSON.stringify(customRoutes));
     alert('Ruta ta a fost salvată!');
     setShowDrawModal(false);
@@ -370,11 +412,17 @@ export default function NavigatorApp() {
     destMarkerRef.current = new maplibregl.Marker({ element: el, anchor: 'bottom' })
       .setLngLat([dest.lon, dest.lat]).addTo(map);
 
+    // Curăță layer-ele de desenare temporară (din modal)
+    if (map && map.getLayer('drawn-route-layer')) {
+      map.removeLayer('drawn-route-layer');
+      map.removeSource('drawn-route');
+    }
+
     if (useCustom) {
       const custom = getCustomRoute(dest.label);
       const preferred = getPreferredRoute(dest.label);
       const track = custom?.track || preferred;
-      if (track && track.length > 0) {
+      if (track) {
         const fakeRoute = {
           distance: 0, duration: 0,
           geometry: { type: 'LineString', coordinates: track },
@@ -390,7 +438,6 @@ export default function NavigatorApp() {
       }
     }
 
-    // Ruta standard
     try {
       const r = await getRoute(userPos.lat, userPos.lon, dest.lat, dest.lon, profile);
       setRoute(r); setCurrentStep(0); setNavStarted(false);
@@ -421,15 +468,13 @@ export default function NavigatorApp() {
         padding: { top: 100, bottom: 450, left: 0, right: 0 },
       });
     }
-    // Redesenează ruta la start
-    if (route.isCustom && route.geometry) {
-      drawCustomRoute(route.geometry);
-    } else if (!route.isCustom && route.geometry) {
+    // Redesenează ruta standard pentru siguranță
+    if (!route.isCustom && route.geometry) {
       drawStandardRoute(route.geometry);
     }
-  }, [route, userPos, compass, drawStandardRoute, drawCustomRoute]);
+  }, [route, userPos, compass, drawStandardRoute]);
 
-  // Monitorizare abatere rută și sosire destinație (doar pentru rutele standard)
+  // Monitorizare abatere rută (doar pentru rutele standard)
   useEffect(() => {
     if (!route || !userPos || !navStarted) return;
     if (route.isCustom) return;
@@ -467,13 +512,13 @@ export default function NavigatorApp() {
     if (destination) {
       const dArr = haversine(userPos.lat, userPos.lon, destination.lat, destination.lon);
       if (dArr < 25) {
-        if (gpsTrackRef.current.length > 5) {
-          recordTrip(gpsTrackRef.current, destination.label);
-        }
-        resetAll();
+        setTimeout(() => {
+          setArrivedDest(destination);
+          setShowSavePrompt(true);
+        }, 2000);
       }
     }
-  }, [userPos, route, currentStep, destination, navStarted, profile, drawStandardRoute, rerouting, resetAll]);
+  }, [userPos, route, currentStep, destination, navStarted, profile, drawStandardRoute, rerouting]);
 
   const recenter = () => {
     if (userPos && mapRef.current) {
@@ -507,7 +552,26 @@ export default function NavigatorApp() {
         </button>
       </div>
 
-      {route && (
+      {showSavePrompt && (
+        <div className="absolute inset-0 z-50 bg-black/30 backdrop-blur-sm flex items-center justify-center px-4">
+          <div className="bg-white/30 backdrop-blur-sm border border-white/40 rounded-2xl p-5 shadow-xl w-full max-w-sm">
+            <div className="text-[17px] font-bold text-black drop-shadow-sm mb-2">🎉 Вы прибыли!</div>
+            <div className="text-[14px] text-black/80 mb-5">
+              Сохранить ваш путь к <span className="font-medium text-black/90">{arrivedDest?.label}</span>? Система запомнит его и будет предлагать в будущем.
+            </div>
+            <div className="flex gap-3">
+              <button onClick={handleSkipSave} className="flex-1 py-3 rounded-xl bg-white/40 backdrop-blur-sm border border-white/50 text-black text-[15px] font-medium">
+                Не сохранять
+              </button>
+              <button onClick={handleSaveRoute} className="flex-1 py-3 rounded-xl bg-amber-500 text-white text-[15px] font-semibold">
+                Сохранить
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {route && !showSavePrompt && (
         <NavigationPanel
           route={route}
           currentStep={currentStep}
