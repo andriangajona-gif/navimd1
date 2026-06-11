@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { X, Check, MapPin, Undo2 } from 'lucide-react';
 import maplibregl from 'maplibre-gl';
 
@@ -9,13 +9,15 @@ export default function DrawRouteModal({ isOpen, onClose, onSave, map, startPoin
   const lineSourceId = 'drawn-route';
   const lineLayerId = 'drawn-route-layer';
 
-  const clearDrawing = () => {
+  const clearDrawing = useCallback(() => {
     if (!map) return;
     markersRef.current.forEach(m => m.remove());
     markersRef.current = [];
-    if (map.getLayer(lineLayerId)) map.removeLayer(lineLayerId);
-    if (map.getSource(lineSourceId)) map.removeSource(lineSourceId);
-  };
+    if (map.getLayer(lineLayerId)) {
+      map.removeLayer(lineLayerId);
+      map.removeSource(lineSourceId);
+    }
+  }, [map, lineLayerId, lineSourceId]);
 
   useEffect(() => {
     if (!isOpen) {
@@ -23,7 +25,7 @@ export default function DrawRouteModal({ isOpen, onClose, onSave, map, startPoin
       setPoints([]);
       setIsDrawing(false);
     }
-  }, [isOpen]);
+  }, [isOpen, clearDrawing]);
 
   useEffect(() => {
     if (!map || !isOpen) return;
@@ -34,7 +36,7 @@ export default function DrawRouteModal({ isOpen, onClose, onSave, map, startPoin
     } else {
       map.getCanvas().style.cursor = '';
     }
-  }, [isDrawing, isOpen, map]);
+  }, [isDrawing, isOpen, map, clearDrawing]);
 
   useEffect(() => {
     if (!map || !isOpen || !isDrawing) return;
@@ -76,7 +78,7 @@ export default function DrawRouteModal({ isOpen, onClose, onSave, map, startPoin
     } else {
       map.getSource(lineSourceId).setData(geojson);
     }
-  }, [map, points, isOpen]);
+  }, [map, points, isOpen, lineSourceId, lineLayerId]);
 
   const handleStartDrawing = () => setIsDrawing(true);
   const handleUndoLast = () => {
