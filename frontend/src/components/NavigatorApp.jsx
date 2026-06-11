@@ -77,6 +77,46 @@ class WakeLockManager {
   }
 }
 
+function RouteOverlay({ routeCoords, map }) {
+  const [points, setPoints] = useState('');
+
+  useEffect(() => {
+    if (!map || !routeCoords || routeCoords.length === 0) {
+      setPoints('');
+      return;
+    }
+
+    const updatePoints = () => {
+      const newPoints = routeCoords.map(([lng, lat]) => {
+        const p = map.project([lng, lat]);
+        return `${p.x},${p.y}`;
+      }).join(' ');
+      setPoints(newPoints);
+    };
+
+    updatePoints();
+    map.on('move', updatePoints);
+    map.on('zoom', updatePoints);
+    map.on('rotate', updatePoints);
+    map.on('pitch', updatePoints);
+
+    return () => {
+      map.off('move', updatePoints);
+      map.off('zoom', updatePoints);
+      map.off('rotate', updatePoints);
+      map.off('pitch', updatePoints);
+    };
+  }, [map, routeCoords]);
+
+  if (!points || points.length === 0) return null;
+  return (
+    <svg style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', pointerEvents: 'none', zIndex: 10 }}>
+      <polyline points={points} fill="none" stroke="#1d4ed8" strokeWidth="10" strokeOpacity="0.3" strokeLinecap="round" strokeLinejoin="round" />
+      <polyline points={points} fill="none" stroke="#2c7be5" strokeWidth="6" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
 export default function NavigatorApp() {
   const mapContainerRef = useRef(null);
   const mapRef = useRef(null);
@@ -93,6 +133,7 @@ export default function NavigatorApp() {
   const [compass, setCompass] = useState(null);
   const [destination, setDestination] = useState(null);
   const [route, setRoute] = useState(null);
+  const [routeCoords, setRouteCoords] = useState(null);
   const [currentStep, setCurrentStep] = useState(0);
   const [profile] = useState('driving');
   const [error, setError] = useState(null);
@@ -248,52 +289,29 @@ export default function NavigatorApp() {
     }
   }, [userPos, mapReady, following, route, navStarted, compass]);
 
-  // ========== FUNCȚII PENTRU RUTE ==========
-  const removeAllRouteLayers = useCallback(() => {
+  // ======== GESTIONAREA LAYERELOR ========
+  const removeCustomLayer = useCallback(() => {
     if (!mapInstance) return;
-    try {
-      if (mapInstance.getLayer('standard-route-layer')) {
-        mapInstance.removeLayer('standard-route-layer');
-        mapInstance.removeSource('standard-route-source');
-      }
-      if (mapInstance.getLayer('custom-route-layer')) {
-        mapInstance.removeLayer('custom-route-layer');
-        mapInstance.removeSource('custom-route-source');
-      }
-    } catch (err) {
-      console.warn('removeAllRouteLayers', err);
+    if (mapInstance.getLayer('custom-route-layer')) {
+      mapInstance.removeLayer('custom-route-layer');
+      mapInstance.removeSource('custom-route-source');
     }
   }, [mapInstance]);
 
+  // Desenează rută standard (albastră) – folosește SVG RouteOverlay
   const drawStandardRoute = useCallback((geo) => {
-    if (!mapInstance || !geo || !geo.coordinates || geo.coordinates.length < 2) {
-      console.warn('drawStandardRoute: invalid geo', geo);
-      return;
-    }
-    removeAllRouteLayers();
-    try {
-      mapInstance.addSource('standard-route-source', {
-        type: 'geojson',
-        data: { type: 'Feature', geometry: geo }
-      });
-      mapInstance.addLayer({
-        id: 'standard-route-layer',
-        type: 'line',
-        source: 'standard-route-source',
-        paint: { 'line-color': '#2c7be5', 'line-width': 6, 'line-opacity': 0.9 }
-      });
-      console.log('Ruta standard desenată (albastră)');
-    } catch (err) {
-      console.error('drawStandardRoute error', err);
-    }
-  }, [mapInstance, removeAllRouteLayers]);
+    if (!geo || !geo.coordinates) return;
+    routeGeomRef.current = geo.coordinates;
+    setRouteCoords(geo.coordinates);
+    removeCustomLayer();
+  }, [removeCustomLayer]);
 
+  // Desenează rută personalizată (portocalie) – folosește layer GeoJSON
   const drawCustomRoute = useCallback((geo) => {
-    if (!mapInstance || !geo || !geo.coordinates || geo.coordinates.length < 2) {
-      console.warn('drawCustomRoute: invalid geo', geo);
-      return;
-    }
-    removeAllRouteLayers();
+    if (!mapInstance || !geo || !geo.coordinates) return;
+    routeGeomRef.current = geo.coordinates;
+    setRouteCoords(null);
+    removeCustomLayer();
     try {
       mapInstance.addSource('custom-route-source', {
         type: 'geojson',
@@ -305,11 +323,10 @@ export default function NavigatorApp() {
         source: 'custom-route-source',
         paint: { 'line-color': '#f59e0b', 'line-width': 8, 'line-opacity': 0.9 }
       });
-      console.log('Ruta personalizată desenată (portocalie)');
     } catch (err) {
-      console.error('drawCustomRoute error', err);
+      console.error('Eroare la adăugarea layer-ului portocaliu:', err);
     }
-  }, [mapInstance, removeAllRouteLayers]);
+  }, [mapInstance, removeCustomLayer]);
 
   const resetAll = useCallback(() => {
     if (destMarkerRef.current) { destMarkerRef.current.remove(); destMarkerRef.current = null; }
@@ -317,13 +334,11 @@ export default function NavigatorApp() {
     if (map) map.easeTo({ pitch: 0, bearing: 0, zoom: 14, duration: 600 });
     routeGeomRef.current = null;
     gpsTrackRef.current = [];
-    setRoute(null);
-    setDestination(null);
-    setCurrentStep(0);
-    setNavStarted(false);
+    setRoute(null); setRouteCoords(null); setDestination(null);
+    setCurrentStep(0); setNavStarted(false);
     offRouteSinceRef.current = null;
-    removeAllRouteLayers();
-  }, [removeAllRouteLayers]);
+    removeCustomLayer();
+  }, [removeCustomLayer]);
 
   const clearRoute = useCallback(() => resetAll(), [resetAll]);
 
@@ -406,6 +421,7 @@ export default function NavigatorApp() {
         padding: { top: 100, bottom: 450, left: 0, right: 0 },
       });
     }
+    // Redesenează ruta la start
     if (route.isCustom && route.geometry) {
       drawCustomRoute(route.geometry);
     } else if (!route.isCustom && route.geometry) {
@@ -469,6 +485,9 @@ export default function NavigatorApp() {
   return (
     <div className="App" style={{ position: 'relative' }}>
       <div ref={mapContainerRef} className="absolute inset-0" />
+      {mapInstance && routeCoords && route && !route.isCustom && (
+        <RouteOverlay routeCoords={routeCoords} map={mapInstance} />
+      )}
       {!route && (
         <SearchPanel
           onSelectDestination={handleSelectDestination}
