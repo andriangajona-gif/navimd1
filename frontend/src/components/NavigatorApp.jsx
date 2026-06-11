@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react';
+import React, { useEffect, useRef, useState, useCallback } from 'react';
 import maplibregl from 'maplibre-gl';
 import { STYLE_URL, getRoute, formatDistance, formatDuration, haversine, recordTrip, scoreRoute, getPreferredRoute } from '../lib/api';
 import SearchPanel from './SearchPanel';
@@ -77,7 +77,7 @@ class WakeLockManager {
   }
 }
 
-// Componenta RouteOverlay optimizată
+// Componenta RouteOverlay optimizată (păstrată)
 function RouteOverlay({ routeCoords, map }) {
   const [points, setPoints] = useState('');
   const frameRef = useRef(null);
@@ -104,14 +104,13 @@ function RouteOverlay({ routeCoords, map }) {
       });
     };
 
-    // Utilizăm throttle pentru a reduce frecvența actualizărilor
     let throttleTimer;
     const throttledUpdate = () => {
       if (throttleTimer) return;
       throttleTimer = setTimeout(() => {
         updatePoints();
         throttleTimer = null;
-      }, 16); // ~60fps
+      }, 16);
     };
 
     updatePoints();
@@ -311,20 +310,6 @@ export default function NavigatorApp() {
     }
   }, [userPos, mapReady, following, route, navStarted, compass]);
 
-  // Trunchiere traseu (doar pentru rutele standard)
-  useEffect(() => {
-    if (!userPos || !routeGeomRef.current || !navStarted) return;
-    if (route && route.isCustom) return;
-    const coords = routeGeomRef.current;
-    let closestIdx = 0;
-    let minDist = Infinity;
-    for (let i = 0; i < coords.length - 1; i++) {
-      const d = pointToSegMeters(userPos.lat, userPos.lon, coords[i][1], coords[i][0], coords[i+1][1], coords[i+1][0]);
-      if (d < minDist) { minDist = d; closestIdx = i; }
-    }
-    setRouteCoords(coords.slice(closestIdx));
-  }, [userPos, navStarted, route]);
-
   // Elimină layer-ul GeoJSON personalizat
   const removeCustomLayer = useCallback(() => {
     if (!mapInstance) return;
@@ -334,17 +319,17 @@ export default function NavigatorApp() {
     }
   }, [mapInstance]);
 
-  // Desenează rută standard (albastră) – setează coordonatele pentru overlay
+  // Desenează rută standard (albastră) – se folosește doar pentru setarea routeCoords, nu pentru layer GeoJSON
   const drawStandardRoute = useCallback((geo) => {
     routeGeomRef.current = geo.coordinates;
-    setRouteCoords(geo.coordinates);
+    setRouteCoords(geo.coordinates);  // actualizează RouteOverlay
     removeCustomLayer();
   }, [removeCustomLayer]);
 
   // Desenează rută personalizată (portocalie) – creează un layer GeoJSON
   const drawCustomRoute = useCallback((geo) => {
     routeGeomRef.current = geo.coordinates;
-    setRouteCoords(null); // dezactivează overlay-ul SVG
+    setRouteCoords(null); // oprește RouteOverlay
     removeCustomLayer();
     if (!mapInstance) return;
     mapInstance.addSource('custom-route-source', {
@@ -470,7 +455,7 @@ export default function NavigatorApp() {
         padding: { top: 100, bottom: 450, left: 0, right: 0 },
       });
     }
-    // Redesenează ruta standard pentru siguranță
+    // Redesenează ruta standard (asigură-te că routeCoords este setat)
     if (!route.isCustom && route.geometry) {
       drawStandardRoute(route.geometry);
     }
@@ -511,7 +496,6 @@ export default function NavigatorApp() {
       offRouteSinceRef.current = null;
     }
     
-    // Verificare sosire la destinație (resetare automată, fără popup)
     if (destination) {
       const dArr = haversine(userPos.lat, userPos.lon, destination.lat, destination.lon);
       if (dArr < 25) {
