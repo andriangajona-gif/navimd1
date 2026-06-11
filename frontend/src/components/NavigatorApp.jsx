@@ -77,62 +77,6 @@ class WakeLockManager {
   }
 }
 
-// ========== RouteOverlay optimizat DEFINITIV ==========
-function RouteOverlay({ routeCoords, map }) {
-  const svgRef = useRef(null);
-  const polylineOuterRef = useRef(null);
-  const polylineInnerRef = useRef(null);
-  const updateTimerRef = useRef(null);
-
-  useEffect(() => {
-    if (!map || !routeCoords || routeCoords.length === 0) return;
-
-    const updatePoints = () => {
-      if (!polylineOuterRef.current || !polylineInnerRef.current) return;
-      const points = routeCoords.map(([lng, lat]) => {
-        const p = map.project([lng, lat]);
-        return `${p.x},${p.y}`;
-      }).join(' ');
-      polylineOuterRef.current.setAttribute('points', points);
-      polylineInnerRef.current.setAttribute('points', points);
-    };
-
-    // Actualizare la sfârșitul mișcării (debounce 100ms)
-    const scheduleUpdate = () => {
-      if (updateTimerRef.current) clearTimeout(updateTimerRef.current);
-      updateTimerRef.current = setTimeout(() => {
-        updatePoints();
-        updateTimerRef.current = null;
-      }, 100);
-    };
-
-    updatePoints(); // prima redare
-
-    map.on('move', scheduleUpdate);
-    map.on('zoom', scheduleUpdate);
-    map.on('rotate', scheduleUpdate);
-    map.on('pitch', scheduleUpdate);
-
-    return () => {
-      if (updateTimerRef.current) clearTimeout(updateTimerRef.current);
-      map.off('move', scheduleUpdate);
-      map.off('zoom', scheduleUpdate);
-      map.off('rotate', scheduleUpdate);
-      map.off('pitch', scheduleUpdate);
-    };
-  }, [map, routeCoords]);
-
-  if (!routeCoords || routeCoords.length < 2) return null;
-
-  return (
-    <svg ref={svgRef} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', pointerEvents: 'none', zIndex: 10 }}>
-      <polyline ref={polylineOuterRef} fill="none" stroke="#1d4ed8" strokeWidth="10" strokeOpacity="0.3" strokeLinecap="round" strokeLinejoin="round" />
-      <polyline ref={polylineInnerRef} fill="none" stroke="#2c7be5" strokeWidth="6" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  );
-}
-// =================================================
-
 export default function NavigatorApp() {
   const mapContainerRef = useRef(null);
   const mapRef = useRef(null);
@@ -149,7 +93,6 @@ export default function NavigatorApp() {
   const [compass, setCompass] = useState(null);
   const [destination, setDestination] = useState(null);
   const [route, setRoute] = useState(null);
-  const [routeCoords, setRouteCoords] = useState(null);
   const [currentStep, setCurrentStep] = useState(0);
   const [profile] = useState('driving');
   const [error, setError] = useState(null);
@@ -305,49 +248,106 @@ export default function NavigatorApp() {
     }
   }, [userPos, mapReady, following, route, navStarted, compass]);
 
-  // ========== NU MAI EXISTĂ TRUNCHIERE (ruta rămâne întreagă) ==========
-  // Am eliminat useEffect-ul care actualiza routeCoords în funcție de userPos.
+  // ========== TRUNCHIERE (actualizare porțiune rămasă) ==========
+  // Reducem actualizările pentru a nu suprasolicita
+  useEffect(() => {
+    if (!userPos || !routeGeomRef.current || !navStarted) return;
+    if (route && route.isCustom) return;
+    const coords = routeGeomRef.current;
+    let closestIdx = 0;
+    let minDist = Infinity;
+    for (let i = 0; i < coords.length - 1; i++) {
+      const d = pointToSegMeters(userPos.lat, userPos.lon, coords[i][1], coords[i][0], coords[i+1][1], coords[i+1][0]);
+      if (d < minDist) { minDist = d; closestIdx = i; }
+    }
+    if (closestIdx > 0) {
+      const newCoords = coords.slice(closestIdx);
+      if (newCoords.length !== routeGeomRef.current.length) {
+        routeGeomRef.current = newCoords;
+        if (mapInstance && mapInstance.getLayer('standard-route-layer')) {
+          mapInstance.getSource('standard-route-source').setData({
+            type: 'Feature',
+            geometry: { type: 'LineString', coordinates: newCoords }
+          });
+        }
+      }
+    }
+  }, [userPos, navStarted, route, mapInstance]);
 
-  // Elimină layer-ul GeoJSON personalizat
-  const removeCustomLayer = useCallback(() => {
+  // Elimină toate layerele de rută
+  const removeAllRouteLayers = useCallback(() => {
     if (!mapInstance) return;
+    if (mapInstance.getLayer('standard-route-layer')) {
+      mapInstance.removeLayer('standard-route-layer');
+      mapInstance.removeSource('standard-route-source');
+    }
     if (mapInstance.getLayer('custom-route-layer')) {
       mapInstance.removeLayer('custom-route-layer');
       mapInstance.removeSource('custom-route-source');
     }
   }, [mapInstance]);
 
-  // Desenează rută standard (albastră) – doar setează coordonatele pentru overlay
+  // Desenează rută standard (albastră)
   const drawStandardRoute = useCallback((geo) => {
-    routeGeomRef.current = geo.coordinates;
-    setRouteCoords(geo.coordinates);  // actualizează RouteOverlay
-    removeCustomLayer();
-  }, [removeCustomLayer]);
-
-  // Desenează rută personalizată (portocalie) – creează un layer GeoJSON
-  const drawCustomRoute = useCallback((geo) => {
-    routeGeomRef.current = geo.coordinates;
-    setRouteCoords(null); // dezactivează overlay-ul SVG
-    removeCustomLayer();
     if (!mapInstance) return;
-    mapInstance.addSource('custom-route-source', {
-      type: 'geojson',
-      data: {
+    routeGeomRef.current = geo.coordinates;
+    if (mapInstance.getLayer('custom-route-layer')) {
+      mapInstance.removeLayer('custom-route-layer');
+      mapInstance.removeSource('custom-route-source');
+    }
+    if (mapInstance.getLayer('standard-route-layer')) {
+      mapInstance.getSource('standard-route-source').setData({
         type: 'Feature',
         geometry: geo
-      }
-    });
-    mapInstance.addLayer({
-      id: 'custom-route-layer',
-      type: 'line',
-      source: 'custom-route-source',
-      paint: {
-        'line-color': '#f59e0b',
-        'line-width': 8,
-        'line-opacity': 0.9
-      }
-    });
-  }, [mapInstance, removeCustomLayer]);
+      });
+    } else {
+      mapInstance.addSource('standard-route-source', {
+        type: 'geojson',
+        data: { type: 'Feature', geometry: geo }
+      });
+      mapInstance.addLayer({
+        id: 'standard-route-layer',
+        type: 'line',
+        source: 'standard-route-source',
+        paint: {
+          'line-color': '#2c7be5',
+          'line-width': 6,
+          'line-opacity': 0.9
+        }
+      });
+    }
+  }, [mapInstance]);
+
+  // Desenează rută personalizată (portocalie)
+  const drawCustomRoute = useCallback((geo) => {
+    if (!mapInstance) return;
+    routeGeomRef.current = geo.coordinates;
+    if (mapInstance.getLayer('standard-route-layer')) {
+      mapInstance.removeLayer('standard-route-layer');
+      mapInstance.removeSource('standard-route-source');
+    }
+    if (mapInstance.getLayer('custom-route-layer')) {
+      mapInstance.getSource('custom-route-source').setData({
+        type: 'Feature',
+        geometry: geo
+      });
+    } else {
+      mapInstance.addSource('custom-route-source', {
+        type: 'geojson',
+        data: { type: 'Feature', geometry: geo }
+      });
+      mapInstance.addLayer({
+        id: 'custom-route-layer',
+        type: 'line',
+        source: 'custom-route-source',
+        paint: {
+          'line-color': '#f59e0b',
+          'line-width': 8,
+          'line-opacity': 0.9
+        }
+      });
+    }
+  }, [mapInstance]);
 
   const resetAll = useCallback(() => {
     if (destMarkerRef.current) { destMarkerRef.current.remove(); destMarkerRef.current = null; }
@@ -355,11 +355,13 @@ export default function NavigatorApp() {
     if (map) map.easeTo({ pitch: 0, bearing: 0, zoom: 14, duration: 600 });
     routeGeomRef.current = null;
     gpsTrackRef.current = [];
-    setRoute(null); setRouteCoords(null); setDestination(null);
-    setCurrentStep(0); setNavStarted(false);
+    setRoute(null);
+    setDestination(null);
+    setCurrentStep(0);
+    setNavStarted(false);
     offRouteSinceRef.current = null;
-    removeCustomLayer();
-  }, [removeCustomLayer]);
+    removeAllRouteLayers();
+  }, [removeAllRouteLayers]);
 
   const clearRoute = useCallback(() => {
     resetAll();
@@ -453,13 +455,14 @@ export default function NavigatorApp() {
         padding: { top: 100, bottom: 450, left: 0, right: 0 },
       });
     }
-    // Redesenează ruta standard (asigură-te că overlay-ul este actualizat)
     if (!route.isCustom && route.geometry) {
       drawStandardRoute(route.geometry);
+    } else if (route.isCustom && route.geometry) {
+      drawCustomRoute(route.geometry);
     }
-  }, [route, userPos, compass, drawStandardRoute]);
+  }, [route, userPos, compass, drawStandardRoute, drawCustomRoute]);
 
-  // Monitorizare abatere rută (doar pentru rutele standard) și sosirea la destinație
+  // Monitorizare abatere rută (doar pentru rutele standard) și sosire la destinație
   useEffect(() => {
     if (!route || !userPos || !navStarted) return;
     if (route.isCustom) return;
@@ -515,9 +518,6 @@ export default function NavigatorApp() {
   return (
     <div className="App" style={{ position: 'relative' }}>
       <div ref={mapContainerRef} className="absolute inset-0" />
-      {mapInstance && routeCoords && route && !route.isCustom && (
-        <RouteOverlay routeCoords={routeCoords} map={mapInstance} />
-      )}
       {!route && (
         <SearchPanel
           onSelectDestination={handleSelectDestination}
