@@ -1,9 +1,9 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import maplibregl from 'maplibre-gl';
-import { STYLE_URL, getRoute, haversine } from '../lib/api';
+import { STYLE_URL, getRoute, haversine, reverseGeocode } from '../lib/api';
 import SearchPanel from './SearchPanel';
 import NavigationPanel from './NavigationPanel';
-import { Locate } from 'lucide-react';
+import { Locate, MapPin, X } from 'lucide-react';
 
 function calcBearing(lat1, lon1, lat2, lon2) {
   const toRad = (d) => d * Math.PI / 180;
@@ -122,6 +122,11 @@ export default function NavigatorApp() {
   const lastReroutedAtRef = useRef(0);
   const offRouteSinceRef = useRef(null);
 
+  // Stări pentru geocodare inversă (click pe hartă)
+  const [clickPopup, setClickPopup] = useState(null);
+  const [loadingAddress, setLoadingAddress] = useState(false);
+
+  // Inițializare hartă
   useEffect(() => {
     if (mapRef.current) return;
     const map = new maplibregl.Map({
@@ -168,12 +173,29 @@ export default function NavigatorApp() {
       }
     });
 
+    // Click pe hartă → geocodare inversă
+    map.on('click', async (e) => {
+      const { lng, lat } = e.lngLat;
+      setLoadingAddress(true);
+      setClickPopup({ lat, lon: lng, address: null });
+      try {
+        const address = await reverseGeocode(lat, lng);
+        setClickPopup({ lat, lon: lng, address: address || 'Adresă necunoscută' });
+      } catch (err) {
+        console.warn('Reverse geocode error', err);
+        setClickPopup({ lat, lon: lng, address: 'Adresă necunoscută' });
+      } finally {
+        setLoadingAddress(false);
+      }
+    });
+
     map.on('error', (e) => console.warn('map err', e?.error?.message || e));
     map.on('dragstart', () => setFollowing(false));
     mapRef.current = map;
     return () => { map.remove(); mapRef.current = null; };
   }, []);
 
+  // Compass
   useEffect(() => {
     const handler = (e) => {
       const deg = e.webkitCompassHeading ?? e.alpha;
@@ -187,6 +209,7 @@ export default function NavigatorApp() {
     return () => window.removeEventListener('deviceorientation', handler, true);
   }, []);
 
+  // Geolocație
   useEffect(() => {
     if (!('geolocation' in navigator)) return;
     const onPos = (pos) => {
@@ -204,6 +227,7 @@ export default function NavigatorApp() {
     return () => { if (watchIdRef.current) navigator.geolocation.clearWatch(watchIdRef.current); };
   }, []);
 
+  // WakeLock
   useEffect(() => {
     const wakeLockManager = wakeLockManagerRef.current;
     if (navStarted) wakeLockManager.acquire();
@@ -220,6 +244,7 @@ export default function NavigatorApp() {
     return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
   }, [navStarted]);
 
+  // Actualizare marker utilizator și cameră
   useEffect(() => {
     if (!mapReady || !userPos) return;
     const map = mapRef.current;
@@ -257,6 +282,7 @@ export default function NavigatorApp() {
     }
   }, [userPos, mapReady, following, route, navStarted, compass]);
 
+  // Trunchiere traseu
   useEffect(() => {
     if (!userPos || !routeGeomRef.current || !navStarted) return;
     const coords = routeGeomRef.current;
@@ -287,6 +313,42 @@ export default function NavigatorApp() {
   const clearRoute = useCallback(() => {
     resetAll();
   }, [resetAll]);
+
+  // Setează destinația din popup-ul de click pe hartă
+  const setDestinationFromClick = useCallback(() => {
+    if (!clickPopup) return;
+    const dest = {
+      lat: clickPopup.lat,
+      lon: clickPopup.lon,
+      label: clickPopup.address || `${clickPopup.lat.toFixed(5)}, ${clickPopup.lon.toFixed(5)}`,
+    };
+    // Simulează selectarea destinației
+    if (userPos) {
+      setDestination(dest);
+      const map = mapRef.current;
+      if (destMarkerRef.current) destMarkerRef.current.remove();
+      const el = document.createElement('div');
+      el.className = 'dest-marker';
+      el.innerHTML = '<svg width="28" height="36" viewBox="0 0 24 32" fill="currentColor"><path d="M12 0C5.4 0 0 5.4 0 12c0 8.4 12 20 12 20s12-11.6 12-20C24 5.4 18.6 0 12 0zm0 16c-2.2 0-4-1.8-4-4s1.8-4 4-4 4 1.8 4 4-1.8 4-4 4z"/></svg>';
+      destMarkerRef.current = new maplibregl.Marker({ element: el, anchor: 'bottom' })
+        .setLngLat([dest.lon, dest.lat]).addTo(map);
+      getRoute(userPos.lat, userPos.lon, dest.lat, dest.lon, profile)
+        .then(r => {
+          setRoute(r);
+          setCurrentStep(0);
+          setNavStarted(false);
+          drawRoute(r.geometry);
+          const coords = r.geometry.coordinates;
+          const bounds = coords.reduce((b, c) => b.extend(c), new maplibregl.LngLatBounds(coords[0], coords[0]));
+          map.fitBounds(bounds, { padding: { top: 120, bottom: 240, left: 40, right: 40 }, duration: 800 });
+          setFollowing(false);
+        })
+        .catch(e => setError('Nu s-a putut construi ruta.'));
+    } else {
+      setError('Aștept semnal GPS.');
+    }
+    setClickPopup(null);
+  }, [clickPopup, userPos, profile, drawRoute]);
 
   const handleSelectDestination = useCallback(async (dest, useCustom = false) => {
     setError(null);
@@ -332,6 +394,7 @@ export default function NavigatorApp() {
     }
   }, [route, userPos, compass]);
 
+  // Monitorizare abatere rută și sosire
   useEffect(() => {
     if (!route || !userPos || !navStarted) return;
     const steps = route.steps || [];
@@ -388,6 +451,32 @@ export default function NavigatorApp() {
       {mapInstance && routeCoords && (
         <RouteOverlay routeCoords={routeCoords} map={mapInstance} />
       )}
+
+      {/* Popup la click pe hartă */}
+      {clickPopup && (
+        <div className="absolute inset-0 z-50 bg-black/30 backdrop-blur-sm flex items-center justify-center px-4">
+          <div className="bg-white/30 backdrop-blur-sm border border-white/40 rounded-2xl p-5 shadow-xl w-full max-w-sm">
+            <div className="flex justify-between items-start mb-3">
+              <div className="text-[17px] font-bold text-black drop-shadow-sm">📍 Locație selectată</div>
+              <button onClick={() => setClickPopup(null)} className="text-black/50 hover:text-black/80">
+                <X size={20} />
+              </button>
+            </div>
+            <div className="text-[14px] text-black/80 mb-4 bg-white/30 p-2.5 rounded-lg">
+              {loadingAddress ? 'Se caută adresa...' : (clickPopup.address || 'Se încarcă...')}
+            </div>
+            <div className="flex gap-3">
+              <button onClick={() => setClickPopup(null)} className="flex-1 py-3 rounded-xl bg-white/40 border border-white/50 text-black text-[15px] font-medium">
+                Anulează
+              </button>
+              <button onClick={setDestinationFromClick} className="flex-1 py-3 rounded-xl bg-amber-500 text-white text-[15px] font-semibold">
+                Setează ca destinație
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {!route && (
         <SearchPanel
           onSelectDestination={handleSelectDestination}
