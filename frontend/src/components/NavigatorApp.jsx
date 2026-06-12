@@ -340,7 +340,7 @@ export default function NavigatorApp() {
     offRouteSinceRef.current = null;
     const map = mapRef.current;
     if (map) {
-      map.setMaxZoom(15); // limitează zoom-ul în timpul navigării la 15
+      map.setMaxZoom(16); // limitează zoom-ul în timpul navigării (valoare ajustabilă)
       map.easeTo({
         center: [userPos.lon, userPos.lat], 
         zoom: 18,
