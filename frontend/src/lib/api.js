@@ -64,6 +64,27 @@ export function haversine(lat1, lon1, lat2, lon2) {
   return 2 * R * Math.asin(Math.sqrt(a));
 }
 
+// ===== GEOCODARE INVERSĂ (click pe hartă) =====
+export async function reverseGeocode(lat, lon) {
+  try {
+    const url = `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lon}&format=json&addressdetails=1`;
+    const response = await fetch(url, {
+      headers: { 'User-Agent': 'NaviMD/1.0' }
+    });
+    const data = await response.json();
+    if (data && data.display_name) {
+      // Scurtăm adresa la un format rezonabil (max 60 caractere)
+      let short = data.display_name;
+      if (short.length > 60) short = short.substring(0, 57) + '...';
+      return short;
+    }
+    return null;
+  } catch (err) {
+    console.warn('Reverse geocode failed', err);
+    return null;
+  }
+}
+
 // ===== ISTORIC CĂUTĂRI =====
 export async function saveSearch(query) {
   try {
