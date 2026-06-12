@@ -22,21 +22,40 @@ export async function geocodeBuilding(street, building, city = 'Florești') {
   return data;
 }
 
-// ===== STIL HARTĂ (Stadia Maps Alidade Smooth - clădiri bine vizibile) =====
+// ===== STIL HARTĂ (OpenStreetMap standard - funcționează întotdeauna) =====
 export const STYLE_URL = {
   version: 8,
   sources: {
     osm: {
       type: 'raster',
-      tiles: ['https://tiles.stadiamaps.com/tiles/alidade_smooth/{z}/{x}/{y}.png'],
+      tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
       tileSize: 256,
-      attribution: '© Stadia Maps, © OpenStreetMap',
+      attribution: '© OpenStreetMap contributors',
     },
   },
   layers: [
     { id: 'osm-tiles', type: 'raster', source: 'osm', minzoom: 0, maxzoom: 19 },
   ],
 };
+
+// Alternativă (comentată) - CartoDB Voyager (clădiri puțin mai vizibile, fără cheie):
+/*
+export const STYLE_URL = {
+  version: 8,
+  sources: {
+    osm: {
+      type: 'raster',
+      tiles: ['https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png'],
+      subdomains: ['a', 'b', 'c'],
+      tileSize: 256,
+      attribution: '© CartoDB, © OpenStreetMap',
+    },
+  },
+  layers: [
+    { id: 'osm-tiles', type: 'raster', source: 'osm', minzoom: 0, maxzoom: 19 },
+  ],
+};
+*/
 
 export function formatDistance(m) {
   if (m == null) return '';
