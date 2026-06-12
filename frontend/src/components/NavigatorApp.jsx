@@ -132,7 +132,7 @@ export default function NavigatorApp() {
   }, []);
   const formattedTime = currentTime.toLocaleTimeString('ro-RO', { hour: '2-digit', minute: '2-digit', hour12: false });
 
-  // Inițializare hartă - zoom maxim global 17
+  // Inițializare hartă - mod 2D (fără înclinare)
   useEffect(() => {
     if (mapRef.current) return;
     const map = new maplibregl.Map({
@@ -141,10 +141,10 @@ export default function NavigatorApp() {
       center: DEFAULT_CENTER,
       zoom: 17,
       minZoom: 6,
-      maxZoom: 17,        // ← LIMITĂ GLOBALĂ: nu se poate mări peste 17 niciodată
+      maxZoom: 17,
       attributionControl: false,
-      pitchWithRotate: true,
-      dragRotate: true,
+      pitchWithRotate: false,   // dezactivează înclinarea (pitch)
+      dragRotate: true,         // permite rotirea (opțional)
       maxBounds: [[24.5, 45.0], [31.5, 49.0]],
     });
 
@@ -185,7 +185,7 @@ export default function NavigatorApp() {
     return () => { map.remove(); mapRef.current = null; };
   }, []);
 
-  // Compass
+  // Compass (rămâne, dar nu va fi folosit pentru pitch)
   useEffect(() => {
     const handler = (e) => {
       const deg = e.webkitCompassHeading ?? e.alpha;
@@ -234,7 +234,7 @@ export default function NavigatorApp() {
     return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
   }, [navStarted]);
 
-  // Actualizare marker utilizator și cameră
+  // Actualizare marker utilizator și cameră (fără pitch)
   useEffect(() => {
     if (!mapReady || !userPos) return;
     const map = mapRef.current;
@@ -257,7 +257,7 @@ export default function NavigatorApp() {
         center: [userPos.lon, userPos.lat], 
         zoom: 17,
         bearing: isNaN(bearing) ? 0 : bearing,
-        pitch: 70, 
+        pitch: 0,               // 2D
         duration: 500,
         padding: { top: 100, bottom: 450, left: 0, right: 0 }, 
       });
@@ -266,7 +266,7 @@ export default function NavigatorApp() {
         center: [userPos.lon, userPos.lat], 
         zoom: 17,
         bearing: 0,
-        pitch: 0,
+        pitch: 0,               // 2D
         duration: 600 
       });
     }
@@ -327,7 +327,7 @@ export default function NavigatorApp() {
       const bounds = coords.reduce((b, c) => b.extend(c), new maplibregl.LngLatBounds(coords[0], coords[0]));
       map.fitBounds(bounds, { 
         padding: { top: 120, bottom: 240, left: 40, right: 40 }, 
-        maxZoom: 17,   // ← nu permite zoom mai mare decât 17 la centrare
+        maxZoom: 17,
         duration: 800 
       });
       setFollowing(false);
@@ -347,7 +347,7 @@ export default function NavigatorApp() {
         center: [userPos.lon, userPos.lat], 
         zoom: 17,
         bearing: compass ?? userPos.heading ?? 0,
-        pitch: 70,
+        pitch: 0,               // 2D
         duration: 900,
         padding: { top: 100, bottom: 450, left: 0, right: 0 },
       });
