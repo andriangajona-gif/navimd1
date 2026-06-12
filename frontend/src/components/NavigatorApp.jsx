@@ -175,7 +175,7 @@ export default function NavigatorApp() {
 
     // Click pe hartă → geocodare inversă DOAR dacă NU există rută
     map.on('click', async (e) => {
-      if (route) return; // ← Dacă există deja o rută, ignoră click-ul
+      if (route) return;
       const { lng, lat } = e.lngLat;
       setLoadingAddress(true);
       setClickPopup({ lat, lon: lng, address: null });
@@ -194,7 +194,7 @@ export default function NavigatorApp() {
     map.on('dragstart', () => setFollowing(false));
     mapRef.current = map;
     return () => { map.remove(); mapRef.current = null; };
-  }, [route]); // ← Adăugăm route ca dependență pentru a recrea listener-ul când se schimbă
+  }, [route]); // dependența route pentru a reînregistra listener-ul când se schimbă
 
   // Compass
   useEffect(() => {
@@ -343,13 +343,17 @@ export default function NavigatorApp() {
           map.fitBounds(bounds, { padding: { top: 120, bottom: 240, left: 40, right: 40 }, duration: 800 });
           setFollowing(false);
         })
-        .catch(e => setError('Nu s-a putut construi ruta.'));
+        .catch(e => {
+          console.error(e);
+          setError('Nu s-a putut construi ruta.');
+        });
     } else {
       setError('Aștept semnal GPS.');
     }
     setClickPopup(null);
   }, [clickPopup, userPos, profile, drawRoute]);
 
+  // FUNCȚIA ORIGINALĂ handleSelectDestination (care funcționa corect)
   const handleSelectDestination = useCallback(async (dest, useCustom = false) => {
     setError(null);
     if (!userPos) { setError('Aștept semnal GPS.'); return; }
