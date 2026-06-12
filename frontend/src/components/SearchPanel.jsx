@@ -19,6 +19,7 @@ export default function SearchPanel({ onSelectDestination, userPos }) {
   const debounceRef = useRef(null);
   const abortRef = useRef(null);
 
+  // Încarcă istoricul la montare
   useEffect(() => {
     loadHistory();
   }, []);
@@ -28,15 +29,26 @@ export default function SearchPanel({ onSelectDestination, userPos }) {
     setSearchHistory(history);
   };
 
+  // Căutare cu debounce și salvare automată (doar dacă query >= 2 caractere)
   useEffect(() => {
     const query = q.trim();
-    if (query.length < 2 || selectedStreet) {
+    // Dacă este selectată o stradă, nu facem căutare
+    if (selectedStreet) {
       setResults([]);
       setError(null);
       setLoading(false);
       return;
     }
 
+    // Dacă query are 0 sau 1 caracter, nu facem căutare la API
+    if (query.length < 2) {
+      setResults([]);
+      setError(null);
+      setLoading(false);
+      return;
+    }
+
+    // Anulăm cererile anterioare
     if (abortRef.current) abortRef.current.abort();
     const controller = new AbortController();
     abortRef.current = controller;
@@ -56,6 +68,7 @@ export default function SearchPanel({ onSelectDestination, userPos }) {
           setError('Ничего не найдено');
         } else {
           setError(null);
+          // Salvează căutarea doar dacă există rezultate
           await saveSearch(query);
           loadHistory();
         }
@@ -144,6 +157,9 @@ export default function SearchPanel({ onSelectDestination, userPos }) {
     setError(null);
   };
 
+  // Verifică dacă trebuie afișat istoricul (exact 1 caracter și niciun rezultat de căutare)
+  const showHistory = !selectedStreet && q.trim().length === 1 && searchHistory.length > 0;
+
   return (
     <div className="absolute top-3 left-3 right-3 z-30">
       <div className="bg-white/30 backdrop-blur-sm border border-white/40 rounded-xl flex items-center px-3 py-2 gap-2">
@@ -168,25 +184,31 @@ export default function SearchPanel({ onSelectDestination, userPos }) {
         <div className="mt-2 bg-white/30 backdrop-blur-sm border border-white/40 rounded-xl max-h-[60vh] overflow-auto">
           {!selectedStreet && (
             <>
-              {loading && <div className="px-4 py-3 text-black/70">Поиск...</div>}
-              {error && <div className="px-4 py-3 text-red-700">{error}</div>}
-              {!loading && results.length === 0 && q.length >= 2 && !error && <div className="px-4 py-3 text-black/70">Ничего не найдено</div>}
-              {results.map(s => (
-                <button key={s.id} onClick={() => handleStreetClick(s)} className="w-full text-left px-3 py-2.5 flex gap-3 hover:bg-white/20 border-b border-white/30">
-                  <div className="w-9 h-9 rounded-full bg-amber-500/70 flex items-center justify-center text-white"><MapPin size={18} /></div>
-                  <div className="flex-1">
-                    <div className="text-black font-medium">{s.name}</div>
-                    <div className="text-black/60 text-xs">{s.parent_name} · {s.count} домов</div>
-                  </div>
-                  <ChevronRight size={16} className="text-black/40" />
-                </button>
-              ))}
+              {/* Căutare normală (query >= 2 caractere) */}
+              {q.trim().length >= 2 && (
+                <>
+                  {loading && <div className="px-4 py-3 text-black/70">Поиск...</div>}
+                  {error && <div className="px-4 py-3 text-red-700">{error}</div>}
+                  {!loading && results.length === 0 && q.length >= 2 && !error && <div className="px-4 py-3 text-black/70">Ничего не найдено</div>}
+                  {results.map(s => (
+                    <button key={s.id} onClick={() => handleStreetClick(s)} className="w-full text-left px-3 py-2.5 flex gap-3 hover:bg-white/20 border-b border-white/30">
+                      <div className="w-9 h-9 rounded-full bg-amber-500/70 flex items-center justify-center text-white"><MapPin size={18} /></div>
+                      <div className="flex-1">
+                        <div className="text-black font-medium">{s.name}</div>
+                        <div className="text-black/60 text-xs">{s.parent_name} · {s.count} домов</div>
+                      </div>
+                      <ChevronRight size={16} className="text-black/40" />
+                    </button>
+                  ))}
+                </>
+              )}
 
-              {q.trim() === '' && searchHistory.length > 0 && (
-                <div className="border-t border-white/30 pt-2 mt-1">
-                  <div className="px-3 py-2 text-[12px] font-semibold text-black/70">📜 Căutări recente</div>
+              {/* Istoric căutări - apare doar când există exact 1 caracter în bara de căutare */}
+              {showHistory && (
+                <div>
+                  <div className="px-3 py-2 text-[12px] font-semibold text-black/70 border-b border-white/30">📜 Căutări recente</div>
                   {searchHistory.map(item => (
-                    <div key={item.id} className="flex items-center justify-between px-3 py-2 hover:bg-white/20">
+                    <div key={item.id} className="flex items-center justify-between px-3 py-2 hover:bg-white/20 border-b border-white/30">
                       <button
                         onClick={() => {
                           setQ(item.query);
