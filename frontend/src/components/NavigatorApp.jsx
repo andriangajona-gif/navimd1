@@ -122,6 +122,16 @@ export default function NavigatorApp() {
   const lastReroutedAtRef = useRef(0);
   const offRouteSinceRef = useRef(null);
 
+  // Ceas digital (întotdeauna vizibil)
+  const [currentTime, setCurrentTime] = useState(new Date());
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setCurrentTime(new Date());
+    }, 1000);
+    return () => clearInterval(interval);
+  }, []);
+  const formattedTime = currentTime.toLocaleTimeString('ro-RO', { hour: '2-digit', minute: '2-digit', hour12: false });
+
   // Inițializare hartă
   useEffect(() => {
     if (mapRef.current) return;
@@ -338,7 +348,7 @@ export default function NavigatorApp() {
     }
   }, [route, userPos, compass]);
 
-  // Monitorizare abatere rută și sosire (fără popup)
+  // Monitorizare abatere rută și sosire
   useEffect(() => {
     if (!route || !userPos || !navStarted) return;
     const steps = route.steps || [];
@@ -372,7 +382,6 @@ export default function NavigatorApp() {
       offRouteSinceRef.current = null;
     }
     
-    // La sosire, doar resetăm traseul fără niciun popup
     if (destination) {
       const dArr = haversine(userPos.lat, userPos.lon, destination.lat, destination.lon);
       if (dArr < 25) {
@@ -402,6 +411,11 @@ export default function NavigatorApp() {
           userPos={userPos}
         />
       )}
+
+      {/* Ceas digital global - colț dreapta sus, întotdeauna vizibil */}
+      <div className="absolute top-3 right-3 z-40 bg-white/30 backdrop-blur-sm border border-white/40 rounded-full px-3 py-1.5 shadow-md">
+        <span className="text-black font-mono text-base font-bold">{formattedTime}</span>
+      </div>
 
       <div className="absolute right-3 bottom-48 z-30 flex flex-col gap-2">
         <button
