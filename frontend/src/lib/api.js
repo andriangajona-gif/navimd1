@@ -22,24 +22,7 @@ export async function geocodeBuilding(street, building, city = 'Florești') {
   return data;
 }
 
-// ===== STIL HARTĂ (OpenStreetMap standard - funcționează întotdeauna) =====
-export const STYLE_URL = {
-  version: 8,
-  sources: {
-    osm: {
-      type: 'raster',
-      tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
-      tileSize: 256,
-      attribution: '© OpenStreetMap contributors',
-    },
-  },
-  layers: [
-    { id: 'osm-tiles', type: 'raster', source: 'osm', minzoom: 0, maxzoom: 19 },
-  ],
-};
-
-// Alternativă (comentată) - CartoDB Voyager (clădiri puțin mai vizibile, fără cheie):
-/*
+// ===== STIL HARTĂ (CartoDB Voyager - clădiri mai vizibile) =====
 export const STYLE_URL = {
   version: 8,
   sources: {
@@ -48,7 +31,24 @@ export const STYLE_URL = {
       tiles: ['https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png'],
       subdomains: ['a', 'b', 'c'],
       tileSize: 256,
-      attribution: '© CartoDB, © OpenStreetMap',
+      attribution: '© CartoDB, © OpenStreetMap contributors',
+    },
+  },
+  layers: [
+    { id: 'osm-tiles', type: 'raster', source: 'osm', minzoom: 0, maxzoom: 19 },
+  ],
+};
+
+// Alternativă (comentată) - OpenStreetMap standard (funcționează întotdeauna)
+/*
+export const STYLE_URL = {
+  version: 8,
+  sources: {
+    osm: {
+      type: 'raster',
+      tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
+      tileSize: 256,
+      attribution: '© OpenStreetMap contributors',
     },
   },
   layers: [
