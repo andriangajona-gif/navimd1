@@ -1,9 +1,9 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import maplibregl from 'maplibre-gl';
-import { STYLE_URL, getRoute, haversine, reverseGeocode } from '../lib/api';
+import { STYLE_URL, getRoute, formatDistance, formatDuration, haversine, recordTrip, scoreRoute, getPreferredRoute } from '../lib/api';
 import SearchPanel from './SearchPanel';
 import NavigationPanel from './NavigationPanel';
-import { Locate, X } from 'lucide-react';
+import { Locate } from 'lucide-react';
 
 function calcBearing(lat1, lon1, lat2, lon2) {
   const toRad = (d) => d * Math.PI / 180;
@@ -41,6 +41,21 @@ function pointToSegMeters(pLat, pLon, aLat, aLon, bLat, bLon) {
 }
 
 const DEFAULT_CENTER = [28.8474, 47.0124];
+
+export function getCustomRoute(destLabel) {
+  try {
+    const existing = JSON.parse(localStorage.getItem('custom_routes') || '{}');
+    return existing[destLabel] || null;
+  } catch (e) { return null; }
+}
+
+function saveCustomRoute(destLabel, track) {
+  try {
+    const existing = JSON.parse(localStorage.getItem('custom_routes') || '{}');
+    existing[destLabel] = { track, savedAt: Date.now() };
+    localStorage.setItem('custom_routes', JSON.stringify(existing));
+  } catch (e) {}
+}
 
 class WakeLockManager {
   constructor() { this.wakeLock = null; }
@@ -104,6 +119,7 @@ export default function NavigatorApp() {
   const destMarkerRef = useRef(null);
   const watchIdRef = useRef(null);
   const routeGeomRef = useRef(null);
+  const gpsTrackRef = useRef([]);
   const wakeLockManagerRef = useRef(new WakeLockManager());
 
   const [mapReady, setMapReady] = useState(false);
@@ -119,12 +135,10 @@ export default function NavigatorApp() {
   const [following, setFollowing] = useState(true);
   const [navStarted, setNavStarted] = useState(false);
   const [rerouting, setRerouting] = useState(false);
+  const [showSavePrompt, setShowSavePrompt] = useState(false);
+  const [arrivedDest, setArrivedDest] = useState(null);
   const lastReroutedAtRef = useRef(0);
   const offRouteSinceRef = useRef(null);
-
-  // Stări pentru geocodare inversă (click pe hartă)
-  const [clickPopup, setClickPopup] = useState(null);
-  const [loadingAddress, setLoadingAddress] = useState(false);
 
   // Inițializare hartă
   useEffect(() => {
@@ -173,28 +187,11 @@ export default function NavigatorApp() {
       }
     });
 
-    // Click pe hartă → geocodare inversă DOAR dacă NU există rută
-    map.on('click', async (e) => {
-      if (route) return;
-      const { lng, lat } = e.lngLat;
-      setLoadingAddress(true);
-      setClickPopup({ lat, lon: lng, address: null });
-      try {
-        const address = await reverseGeocode(lat, lng);
-        setClickPopup({ lat, lon: lng, address: address || 'Adresă necunoscută' });
-      } catch (err) {
-        console.warn('Reverse geocode error', err);
-        setClickPopup({ lat, lon: lng, address: 'Adresă necunoscută' });
-      } finally {
-        setLoadingAddress(false);
-      }
-    });
-
     map.on('error', (e) => console.warn('map err', e?.error?.message || e));
     map.on('dragstart', () => setFollowing(false));
     mapRef.current = map;
     return () => { map.remove(); mapRef.current = null; };
-  }, [route]); // dependența route pentru a reînregistra listener-ul când se schimbă
+  }, []);
 
   // Compass
   useEffect(() => {
@@ -216,6 +213,9 @@ export default function NavigatorApp() {
     const onPos = (pos) => {
       const p = { lat: pos.coords.latitude, lon: pos.coords.longitude, heading: pos.coords.heading };
       setUserPos(p);
+      if (navStarted) {
+        gpsTrackRef.current.push([pos.coords.longitude, pos.coords.latitude]);
+      }
     };
     const onErr = (e) => {
       console.warn('geoloc err', e.message);
@@ -226,7 +226,7 @@ export default function NavigatorApp() {
       enableHighAccuracy: true, maximumAge: 1500, timeout: 15000,
     });
     return () => { if (watchIdRef.current) navigator.geolocation.clearWatch(watchIdRef.current); };
-  }, []);
+  }, [navStarted]);
 
   // WakeLock
   useEffect(() => {
@@ -306,54 +306,38 @@ export default function NavigatorApp() {
     const map = mapRef.current;
     if (map) map.easeTo({ pitch: 0, bearing: 0, zoom: 14, duration: 600 });
     routeGeomRef.current = null;
+    gpsTrackRef.current = [];
     setRoute(null); setRouteCoords(null); setDestination(null);
     setCurrentStep(0); setNavStarted(false);
     offRouteSinceRef.current = null;
+    setShowSavePrompt(false);
+    setArrivedDest(null);
   }, []);
 
-  const clearRoute = useCallback(() => {
-    resetAll();
-  }, [resetAll]);
-
-  // Setează destinația din popup-ul de click pe hartă
-  const setDestinationFromClick = useCallback(() => {
-    if (!clickPopup) return;
-    const dest = {
-      lat: clickPopup.lat,
-      lon: clickPopup.lon,
-      label: clickPopup.address || `${clickPopup.lat.toFixed(5)}, ${clickPopup.lon.toFixed(5)}`,
-    };
-    if (userPos) {
-      setDestination(dest);
-      const map = mapRef.current;
-      if (destMarkerRef.current) destMarkerRef.current.remove();
-      const el = document.createElement('div');
-      el.className = 'dest-marker';
-      el.innerHTML = '<svg width="28" height="36" viewBox="0 0 24 32" fill="currentColor"><path d="M12 0C5.4 0 0 5.4 0 12c0 8.4 12 20 12 20s12-11.6 12-20C24 5.4 18.6 0 12 0zm0 16c-2.2 0-4-1.8-4-4s1.8-4 4-4 4 1.8 4 4-1.8 4-4 4z"/></svg>';
-      destMarkerRef.current = new maplibregl.Marker({ element: el, anchor: 'bottom' })
-        .setLngLat([dest.lon, dest.lat]).addTo(map);
-      getRoute(userPos.lat, userPos.lon, dest.lat, dest.lon, profile)
-        .then(r => {
-          setRoute(r);
-          setCurrentStep(0);
-          setNavStarted(false);
-          drawRoute(r.geometry);
-          const coords = r.geometry.coordinates;
-          const bounds = coords.reduce((b, c) => b.extend(c), new maplibregl.LngLatBounds(coords[0], coords[0]));
-          map.fitBounds(bounds, { padding: { top: 120, bottom: 240, left: 40, right: 40 }, duration: 800 });
-          setFollowing(false);
-        })
-        .catch(e => {
-          console.error(e);
-          setError('Nu s-a putut construi ruta.');
-        });
-    } else {
-      setError('Aștept semnal GPS.');
+  const handleSaveRoute = useCallback(() => {
+    if (arrivedDest && gpsTrackRef.current.length > 5) {
+      saveCustomRoute(arrivedDest.label, gpsTrackRef.current);
+      recordTrip(gpsTrackRef.current, arrivedDest.label);
     }
-    setClickPopup(null);
-  }, [clickPopup, userPos, profile, drawRoute]);
+    resetAll();
+  }, [arrivedDest, resetAll]);
 
-  // FUNCȚIA ORIGINALĂ handleSelectDestination (care funcționa corect)
+  const handleSkipSave = useCallback(() => {
+    if (arrivedDest && gpsTrackRef.current.length > 5) {
+      recordTrip(gpsTrackRef.current, arrivedDest.label);
+    }
+    resetAll();
+  }, [arrivedDest, resetAll]);
+
+  const clearRoute = useCallback(() => {
+    if (navStarted && gpsTrackRef.current.length > 5) {
+      setArrivedDest(destination);
+      setShowSavePrompt(true);
+    } else {
+      resetAll();
+    }
+  }, [navStarted, destination, resetAll]);
+
   const handleSelectDestination = useCallback(async (dest, useCustom = false) => {
     setError(null);
     if (!userPos) { setError('Aștept semnal GPS.'); return; }
@@ -367,6 +351,13 @@ export default function NavigatorApp() {
     destMarkerRef.current = new maplibregl.Marker({ element: el, anchor: 'bottom' })
       .setLngLat([dest.lon, dest.lat]).addTo(map);
 
+    // Curăță orice layer rămas de la desenarea manuală (prevenire dublare linii)
+    if (map && map.getLayer('drawn-route-layer')) {
+      map.removeLayer('drawn-route-layer');
+      map.removeSource('drawn-route');
+    }
+
+    // Folosește ruta standard (ignoră complet ruta personalizată)
     try {
       const r = await getRoute(userPos.lat, userPos.lon, dest.lat, dest.lon, profile);
       setRoute(r); setCurrentStep(0); setNavStarted(false);
@@ -382,6 +373,7 @@ export default function NavigatorApp() {
 
   const startNavigation = useCallback(() => {
     if (!route || !userPos) return;
+    gpsTrackRef.current = [];
     setNavStarted(true);
     setFollowing(true);
     offRouteSinceRef.current = null;
@@ -398,7 +390,7 @@ export default function NavigatorApp() {
     }
   }, [route, userPos, compass]);
 
-  // Monitorizare abatere rută și sosire
+  // Monitorizare abatere rută
   useEffect(() => {
     if (!route || !userPos || !navStarted) return;
     const steps = route.steps || [];
@@ -436,11 +428,12 @@ export default function NavigatorApp() {
       const dArr = haversine(userPos.lat, userPos.lon, destination.lat, destination.lon);
       if (dArr < 25) {
         setTimeout(() => {
-          resetAll();
+          setArrivedDest(destination);
+          setShowSavePrompt(true);
         }, 2000);
       }
     }
-  }, [userPos, route, currentStep, destination, navStarted, profile, drawRoute, rerouting, resetAll]);
+  }, [userPos, route, currentStep, destination, navStarted, profile, drawRoute, rerouting]);
 
   const recenter = () => {
     if (userPos && mapRef.current) {
@@ -455,32 +448,6 @@ export default function NavigatorApp() {
       {mapInstance && routeCoords && (
         <RouteOverlay routeCoords={routeCoords} map={mapInstance} />
       )}
-
-      {/* Popup la click pe hartă - apare doar când NU există rută */}
-      {clickPopup && !route && (
-        <div className="absolute inset-0 z-50 bg-black/30 backdrop-blur-sm flex items-center justify-center px-4">
-          <div className="bg-white/30 backdrop-blur-sm border border-white/40 rounded-2xl p-5 shadow-xl w-full max-w-sm">
-            <div className="flex justify-between items-start mb-3">
-              <div className="text-[17px] font-bold text-black drop-shadow-sm">📍 Locație selectată</div>
-              <button onClick={() => setClickPopup(null)} className="text-black/50 hover:text-black/80">
-                <X size={20} />
-              </button>
-            </div>
-            <div className="text-[14px] text-black/80 mb-4 bg-white/30 p-2.5 rounded-lg">
-              {loadingAddress ? 'Se caută adresa...' : (clickPopup.address || 'Se încarcă...')}
-            </div>
-            <div className="flex gap-3">
-              <button onClick={() => setClickPopup(null)} className="flex-1 py-3 rounded-xl bg-white/40 border border-white/50 text-black text-[15px] font-medium">
-                Anulează
-              </button>
-              <button onClick={setDestinationFromClick} className="flex-1 py-3 rounded-xl bg-amber-500 text-white text-[15px] font-semibold">
-                Setează ca destinație
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
       {!route && (
         <SearchPanel
           onSelectDestination={handleSelectDestination}
@@ -497,7 +464,26 @@ export default function NavigatorApp() {
         </button>
       </div>
 
-      {route && (
+      {showSavePrompt && (
+        <div className="absolute inset-0 z-50 bg-black/30 backdrop-blur-sm flex items-center justify-center px-4">
+          <div className="bg-white/30 backdrop-blur-sm border border-white/40 rounded-2xl p-5 shadow-xl w-full max-w-sm">
+            <div className="text-[17px] font-bold text-black drop-shadow-sm mb-2">🎉 Вы прибыли!</div>
+            <div className="text-[14px] text-black/80 mb-5">
+              Сохранить ваш путь к <span className="font-medium text-black/90">{arrivedDest?.label}</span>? Система запомнит его и будет предлагать в будущем.
+            </div>
+            <div className="flex gap-3">
+              <button onClick={handleSkipSave} className="flex-1 py-3 rounded-xl bg-white/40 backdrop-blur-sm border border-white/50 text-black text-[15px] font-medium">
+                Не сохранять
+              </button>
+              <button onClick={handleSaveRoute} className="flex-1 py-3 rounded-xl bg-amber-500 text-white text-[15px] font-semibold">
+                Сохранить
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {route && !showSavePrompt && (
         <NavigationPanel
           route={route}
           currentStep={currentStep}
