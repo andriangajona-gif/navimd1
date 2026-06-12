@@ -63,3 +63,34 @@ export function haversine(lat1, lon1, lat2, lon2) {
             Math.sin(dLon / 2) ** 2;
   return 2 * R * Math.asin(Math.sqrt(a));
 }
+
+// ===== ISTORIC CĂUTĂRI =====
+export async function saveSearch(query) {
+  try {
+    const { data } = await api.post('/search/save', null, { params: { query } });
+    return data;
+  } catch (err) {
+    console.warn('Failed to save search:', err);
+    return null;
+  }
+}
+
+export async function getSearchHistory(limit = 20) {
+  try {
+    const { data } = await api.get('/search/history', { params: { limit } });
+    return data.history || [];
+  } catch (err) {
+    console.warn('Failed to get search history:', err);
+    return [];
+  }
+}
+
+export async function deleteSearch(searchId) {
+  try {
+    const { data } = await api.delete(`/search/history/${searchId}`);
+    return data;
+  } catch (err) {
+    console.warn('Failed to delete search:', err);
+    return null;
+  }
+}
