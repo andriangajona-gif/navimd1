@@ -22,25 +22,7 @@ export async function geocodeBuilding(street, building, city = 'Florești') {
   return data;
 }
 
-// ===== STIL HARTĂ (CartoDB Voyager - clădiri mai vizibile) =====
-export const STYLE_URL = {
-  version: 8,
-  sources: {
-    osm: {
-      type: 'raster',
-      tiles: ['https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png'],
-      subdomains: ['a', 'b', 'c'],
-      tileSize: 256,
-      attribution: '© CartoDB, © OpenStreetMap contributors',
-    },
-  },
-  layers: [
-    { id: 'osm-tiles', type: 'raster', source: 'osm', minzoom: 0, maxzoom: 19 },
-  ],
-};
-
-// Alternativă (comentată) - OpenStreetMap standard (funcționează întotdeauna)
-/*
+// ===== STIL HARTĂ (OpenStreetMap standard - întotdeauna funcțional) =====
 export const STYLE_URL = {
   version: 8,
   sources: {
@@ -55,7 +37,6 @@ export const STYLE_URL = {
     { id: 'osm-tiles', type: 'raster', source: 'osm', minzoom: 0, maxzoom: 19 },
   ],
 };
-*/
 
 export function formatDistance(m) {
   if (m == null) return '';
