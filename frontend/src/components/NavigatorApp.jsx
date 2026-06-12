@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import maplibregl from 'maplibre-gl';
-import { STYLE_URL, getRoute, formatDistance, formatDuration, haversine, recordTrip, scoreRoute, getPreferredRoute } from '../lib/api';
+import { STYLE_URL, getRoute, haversine } from '../lib/api';
 import SearchPanel from './SearchPanel';
 import NavigationPanel from './NavigationPanel';
 import { Locate } from 'lucide-react';
@@ -41,21 +41,6 @@ function pointToSegMeters(pLat, pLon, aLat, aLon, bLat, bLon) {
 }
 
 const DEFAULT_CENTER = [28.8474, 47.0124];
-
-export function getCustomRoute(destLabel) {
-  try {
-    const existing = JSON.parse(localStorage.getItem('custom_routes') || '{}');
-    return existing[destLabel] || null;
-  } catch (e) { return null; }
-}
-
-function saveCustomRoute(destLabel, track) {
-  try {
-    const existing = JSON.parse(localStorage.getItem('custom_routes') || '{}');
-    existing[destLabel] = { track, savedAt: Date.now() };
-    localStorage.setItem('custom_routes', JSON.stringify(existing));
-  } catch (e) {}
-}
 
 class WakeLockManager {
   constructor() { this.wakeLock = null; }
@@ -119,7 +104,6 @@ export default function NavigatorApp() {
   const destMarkerRef = useRef(null);
   const watchIdRef = useRef(null);
   const routeGeomRef = useRef(null);
-  const gpsTrackRef = useRef([]);
   const wakeLockManagerRef = useRef(new WakeLockManager());
 
   const [mapReady, setMapReady] = useState(false);
@@ -135,8 +119,6 @@ export default function NavigatorApp() {
   const [following, setFollowing] = useState(true);
   const [navStarted, setNavStarted] = useState(false);
   const [rerouting, setRerouting] = useState(false);
-  const [showSavePrompt, setShowSavePrompt] = useState(false);
-  const [arrivedDest, setArrivedDest] = useState(null);
   const lastReroutedAtRef = useRef(0);
   const offRouteSinceRef = useRef(null);
 
@@ -213,9 +195,6 @@ export default function NavigatorApp() {
     const onPos = (pos) => {
       const p = { lat: pos.coords.latitude, lon: pos.coords.longitude, heading: pos.coords.heading };
       setUserPos(p);
-      if (navStarted) {
-        gpsTrackRef.current.push([pos.coords.longitude, pos.coords.latitude]);
-      }
     };
     const onErr = (e) => {
       console.warn('geoloc err', e.message);
@@ -226,7 +205,7 @@ export default function NavigatorApp() {
       enableHighAccuracy: true, maximumAge: 1500, timeout: 15000,
     });
     return () => { if (watchIdRef.current) navigator.geolocation.clearWatch(watchIdRef.current); };
-  }, [navStarted]);
+  }, []);
 
   // WakeLock
   useEffect(() => {
@@ -306,37 +285,14 @@ export default function NavigatorApp() {
     const map = mapRef.current;
     if (map) map.easeTo({ pitch: 0, bearing: 0, zoom: 14, duration: 600 });
     routeGeomRef.current = null;
-    gpsTrackRef.current = [];
     setRoute(null); setRouteCoords(null); setDestination(null);
     setCurrentStep(0); setNavStarted(false);
     offRouteSinceRef.current = null;
-    setShowSavePrompt(false);
-    setArrivedDest(null);
   }, []);
 
-  const handleSaveRoute = useCallback(() => {
-    if (arrivedDest && gpsTrackRef.current.length > 5) {
-      saveCustomRoute(arrivedDest.label, gpsTrackRef.current);
-      recordTrip(gpsTrackRef.current, arrivedDest.label);
-    }
-    resetAll();
-  }, [arrivedDest, resetAll]);
-
-  const handleSkipSave = useCallback(() => {
-    if (arrivedDest && gpsTrackRef.current.length > 5) {
-      recordTrip(gpsTrackRef.current, arrivedDest.label);
-    }
-    resetAll();
-  }, [arrivedDest, resetAll]);
-
   const clearRoute = useCallback(() => {
-    if (navStarted && gpsTrackRef.current.length > 5) {
-      setArrivedDest(destination);
-      setShowSavePrompt(true);
-    } else {
-      resetAll();
-    }
-  }, [navStarted, destination, resetAll]);
+    resetAll();
+  }, [resetAll]);
 
   const handleSelectDestination = useCallback(async (dest, useCustom = false) => {
     setError(null);
@@ -351,13 +307,6 @@ export default function NavigatorApp() {
     destMarkerRef.current = new maplibregl.Marker({ element: el, anchor: 'bottom' })
       .setLngLat([dest.lon, dest.lat]).addTo(map);
 
-    // Curăță orice layer rămas de la desenarea manuală (prevenire dublare linii)
-    if (map && map.getLayer('drawn-route-layer')) {
-      map.removeLayer('drawn-route-layer');
-      map.removeSource('drawn-route');
-    }
-
-    // Folosește ruta standard (ignoră complet ruta personalizată)
     try {
       const r = await getRoute(userPos.lat, userPos.lon, dest.lat, dest.lon, profile);
       setRoute(r); setCurrentStep(0); setNavStarted(false);
@@ -373,7 +322,6 @@ export default function NavigatorApp() {
 
   const startNavigation = useCallback(() => {
     if (!route || !userPos) return;
-    gpsTrackRef.current = [];
     setNavStarted(true);
     setFollowing(true);
     offRouteSinceRef.current = null;
@@ -390,7 +338,7 @@ export default function NavigatorApp() {
     }
   }, [route, userPos, compass]);
 
-  // Monitorizare abatere rută
+  // Monitorizare abatere rută și sosire (fără popup)
   useEffect(() => {
     if (!route || !userPos || !navStarted) return;
     const steps = route.steps || [];
@@ -424,16 +372,16 @@ export default function NavigatorApp() {
       offRouteSinceRef.current = null;
     }
     
+    // La sosire, doar resetăm traseul fără niciun popup
     if (destination) {
       const dArr = haversine(userPos.lat, userPos.lon, destination.lat, destination.lon);
       if (dArr < 25) {
         setTimeout(() => {
-          setArrivedDest(destination);
-          setShowSavePrompt(true);
+          resetAll();
         }, 2000);
       }
     }
-  }, [userPos, route, currentStep, destination, navStarted, profile, drawRoute, rerouting]);
+  }, [userPos, route, currentStep, destination, navStarted, profile, drawRoute, rerouting, resetAll]);
 
   const recenter = () => {
     if (userPos && mapRef.current) {
@@ -464,26 +412,7 @@ export default function NavigatorApp() {
         </button>
       </div>
 
-      {showSavePrompt && (
-        <div className="absolute inset-0 z-50 bg-black/30 backdrop-blur-sm flex items-center justify-center px-4">
-          <div className="bg-white/30 backdrop-blur-sm border border-white/40 rounded-2xl p-5 shadow-xl w-full max-w-sm">
-            <div className="text-[17px] font-bold text-black drop-shadow-sm mb-2">🎉 Вы прибыли!</div>
-            <div className="text-[14px] text-black/80 mb-5">
-              Сохранить ваш путь к <span className="font-medium text-black/90">{arrivedDest?.label}</span>? Система запомнит его и будет предлагать в будущем.
-            </div>
-            <div className="flex gap-3">
-              <button onClick={handleSkipSave} className="flex-1 py-3 rounded-xl bg-white/40 backdrop-blur-sm border border-white/50 text-black text-[15px] font-medium">
-                Не сохранять
-              </button>
-              <button onClick={handleSaveRoute} className="flex-1 py-3 rounded-xl bg-amber-500 text-white text-[15px] font-semibold">
-                Сохранить
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {route && !showSavePrompt && (
+      {route && (
         <NavigationPanel
           route={route}
           currentStep={currentStep}
