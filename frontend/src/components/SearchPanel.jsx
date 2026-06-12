@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Search, X, MapPin, Building2, ChevronRight, ArrowLeft } from 'lucide-react';
-import { searchStreets, geocodeBuilding } from '../lib/api';
+import { searchStreets, geocodeBuilding, saveSearch, getSearchHistory, deleteSearch } from '../lib/api';
 
 const MANUAL_COORDS = {
   "21": { lat: 47.90479, lon: 28.29035 },
@@ -15,8 +15,18 @@ export default function SearchPanel({ onSelectDestination, userPos }) {
   const [results, setResults] = useState([]);
   const [selectedStreet, setSelectedStreet] = useState(null);
   const [error, setError] = useState(null);
+  const [searchHistory, setSearchHistory] = useState([]);
   const debounceRef = useRef(null);
   const abortRef = useRef(null);
+
+  useEffect(() => {
+    loadHistory();
+  }, []);
+
+  const loadHistory = async () => {
+    const history = await getSearchHistory(10);
+    setSearchHistory(history);
+  };
 
   useEffect(() => {
     const query = q.trim();
@@ -42,8 +52,13 @@ export default function SearchPanel({ onSelectDestination, userPos }) {
         let items = (data.results || []).filter(it => it.type === 'street');
         items = items.map(it => it.name === "str. 9 Mai" ? { ...it, name: "Strada 9 Mai" } : it);
         setResults(items);
-        if (items.length === 0) setError('Ничего не найдено');
-        else setError(null);
+        if (items.length === 0) {
+          setError('Ничего не найдено');
+        } else {
+          setError(null);
+          await saveSearch(query);
+          loadHistory();
+        }
       } catch (e) {
         if (!controller.signal.aborted) {
           setError('Ошибка поиска. Попробуйте позже.');
@@ -107,9 +122,13 @@ export default function SearchPanel({ onSelectDestination, userPos }) {
       city: selectedStreet.parent_name,
     };
 
-    // Apelează direct ruta standard
     onSelectDestination(dest, false);
     resetAfterSelect();
+  };
+
+  const handleDeleteHistoryItem = async (id) => {
+    await deleteSearch(id);
+    loadHistory();
   };
 
   const resetAfterSelect = () => {
@@ -162,6 +181,31 @@ export default function SearchPanel({ onSelectDestination, userPos }) {
                   <ChevronRight size={16} className="text-black/40" />
                 </button>
               ))}
+
+              {q.trim() === '' && searchHistory.length > 0 && (
+                <div className="border-t border-white/30 pt-2 mt-1">
+                  <div className="px-3 py-2 text-[12px] font-semibold text-black/70">📜 Căutări recente</div>
+                  {searchHistory.map(item => (
+                    <div key={item.id} className="flex items-center justify-between px-3 py-2 hover:bg-white/20">
+                      <button
+                        onClick={() => {
+                          setQ(item.query);
+                          setOpen(true);
+                        }}
+                        className="flex-1 text-left text-black"
+                      >
+                        {item.query}
+                      </button>
+                      <button
+                        onClick={() => handleDeleteHistoryItem(item.id)}
+                        className="text-black/40 hover:text-red-500"
+                      >
+                        <X size={14} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
             </>
           )}
 
