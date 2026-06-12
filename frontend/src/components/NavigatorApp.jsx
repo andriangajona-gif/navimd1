@@ -3,7 +3,7 @@ import maplibregl from 'maplibre-gl';
 import { STYLE_URL, getRoute, haversine, reverseGeocode } from '../lib/api';
 import SearchPanel from './SearchPanel';
 import NavigationPanel from './NavigationPanel';
-import { Locate, MapPin, X } from 'lucide-react';
+import { Locate, X } from 'lucide-react';
 
 function calcBearing(lat1, lon1, lat2, lon2) {
   const toRad = (d) => d * Math.PI / 180;
@@ -173,8 +173,9 @@ export default function NavigatorApp() {
       }
     });
 
-    // Click pe hartă → geocodare inversă
+    // Click pe hartă → geocodare inversă DOAR dacă NU există rută
     map.on('click', async (e) => {
+      if (route) return; // ← Dacă există deja o rută, ignoră click-ul
       const { lng, lat } = e.lngLat;
       setLoadingAddress(true);
       setClickPopup({ lat, lon: lng, address: null });
@@ -193,7 +194,7 @@ export default function NavigatorApp() {
     map.on('dragstart', () => setFollowing(false));
     mapRef.current = map;
     return () => { map.remove(); mapRef.current = null; };
-  }, []);
+  }, [route]); // ← Adăugăm route ca dependență pentru a recrea listener-ul când se schimbă
 
   // Compass
   useEffect(() => {
@@ -322,7 +323,6 @@ export default function NavigatorApp() {
       lon: clickPopup.lon,
       label: clickPopup.address || `${clickPopup.lat.toFixed(5)}, ${clickPopup.lon.toFixed(5)}`,
     };
-    // Simulează selectarea destinației
     if (userPos) {
       setDestination(dest);
       const map = mapRef.current;
@@ -452,8 +452,8 @@ export default function NavigatorApp() {
         <RouteOverlay routeCoords={routeCoords} map={mapInstance} />
       )}
 
-      {/* Popup la click pe hartă */}
-      {clickPopup && (
+      {/* Popup la click pe hartă - apare doar când NU există rută */}
+      {clickPopup && !route && (
         <div className="absolute inset-0 z-50 bg-black/30 backdrop-blur-sm flex items-center justify-center px-4">
           <div className="bg-white/30 backdrop-blur-sm border border-white/40 rounded-2xl p-5 shadow-xl w-full max-w-sm">
             <div className="flex justify-between items-start mb-3">
