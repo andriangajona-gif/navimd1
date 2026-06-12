@@ -23,6 +23,7 @@ OSRM_BASE = 'https://router.project-osrm.org'
 
 client = AsyncIOMotorClient(MONGO_URL) if MONGO_URL else None
 db = client[DB_NAME] if client else None
+searches_collection = db.searches if db else None  # <-- ADAUGAT
 
 app = FastAPI(title='Navigator MD API')
 api_router = APIRouter(prefix='/api')
@@ -127,7 +128,6 @@ async def get_buildings(
         for item in data:
             if item.get('type') == 'street' and item.get('name', '').lower() == street_name.lower():
                 buildings = item.get('buildings', [])
-                # sortare numerică aproximativă
                 try:
                     buildings.sort(key=lambda x: int(x.split('/')[0]) if x.replace('/', '').isdigit() else x)
                 except:
@@ -276,6 +276,54 @@ async def map_style():
         ],
     }
     return style
+
+
+# ========== ISTORIC CĂUTĂRI ==========
+@api_router.post('/search/save')
+async def save_search(query: str):
+    if not searches_collection:
+        raise HTTPException(status_code=503, detail="MongoDB not available")
+    if not query or len(query.strip()) == 0:
+        raise HTTPException(status_code=400, detail="Query cannot be empty")
+    
+    existing = await searches_collection.find_one({"query": query.strip()})
+    if existing:
+        await searches_collection.update_one(
+            {"query": query.strip()},
+            {"$set": {"timestamp": datetime.utcnow()}}
+        )
+        return {"message": "Search updated", "id": existing.get("id")}
+    
+    search = SavedSearch(query=query.strip())
+    await searches_collection.insert_one(search.dict())
+    return {"message": "Search saved", "id": search.id}
+
+
+@api_router.get('/search/history')
+async def get_search_history(limit: int = Query(20, ge=1, le=100)):
+    if not searches_collection:
+        raise HTTPException(status_code=503, detail="MongoDB not available")
+    
+    cursor = searches_collection.find().sort("timestamp", -1).limit(limit)
+    history = []
+    async for doc in cursor:
+        history.append({
+            "id": doc.get("id"),
+            "query": doc.get("query"),
+            "timestamp": doc.get("timestamp").isoformat() if doc.get("timestamp") else None
+        })
+    return {"history": history}
+
+
+@api_router.delete('/search/history/{search_id}')
+async def delete_search(search_id: str):
+    if not searches_collection:
+        raise HTTPException(status_code=503, detail="MongoDB not available")
+    
+    result = await searches_collection.delete_one({"id": search_id})
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Search not found")
+    return {"message": "Search deleted"}
 
 
 app.include_router(api_router)
