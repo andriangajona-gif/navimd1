@@ -122,7 +122,7 @@ export default function NavigatorApp() {
   const lastReroutedAtRef = useRef(0);
   const offRouteSinceRef = useRef(null);
 
-  // Ceas digital (întotdeauna vizibil)
+  // Ceas digital (vizibil permanent)
   const [currentTime, setCurrentTime] = useState(new Date());
   useEffect(() => {
     const interval = setInterval(() => {
@@ -141,7 +141,7 @@ export default function NavigatorApp() {
       center: DEFAULT_CENTER,
       zoom: 12,
       minZoom: 6,
-      maxZoom: 18,
+      maxZoom: 19,
       attributionControl: false,
       pitchWithRotate: true,
       dragRotate: true,
@@ -293,7 +293,10 @@ export default function NavigatorApp() {
   const resetAll = useCallback(() => {
     if (destMarkerRef.current) { destMarkerRef.current.remove(); destMarkerRef.current = null; }
     const map = mapRef.current;
-    if (map) map.easeTo({ pitch: 0, bearing: 0, zoom: 14, duration: 600 });
+    if (map) {
+      map.setMaxZoom(19); // redă zoom-ul maxim implicit după terminarea navigării
+      map.easeTo({ pitch: 0, bearing: 0, zoom: 14, duration: 600 });
+    }
     routeGeomRef.current = null;
     setRoute(null); setRouteCoords(null); setDestination(null);
     setCurrentStep(0); setNavStarted(false);
@@ -337,6 +340,7 @@ export default function NavigatorApp() {
     offRouteSinceRef.current = null;
     const map = mapRef.current;
     if (map) {
+      map.setMaxZoom(16); // limitează zoom-ul în timpul navigării (valoare ajustabilă)
       map.easeTo({
         center: [userPos.lon, userPos.lat], 
         zoom: 18,
@@ -348,7 +352,7 @@ export default function NavigatorApp() {
     }
   }, [route, userPos, compass]);
 
-  // Monitorizare abatere rută și sosire
+  // Monitorizare abatere rută și sosire (fără popup)
   useEffect(() => {
     if (!route || !userPos || !navStarted) return;
     const steps = route.steps || [];
@@ -412,7 +416,7 @@ export default function NavigatorApp() {
         />
       )}
 
-      {/* Ceas digital global - colț dreapta sus, întotdeauna vizibil */}
+      {/* Ceas digital permanent - colț dreapta sus */}
       <div className="absolute top-3 right-3 z-40 bg-white/30 backdrop-blur-sm border border-white/40 rounded-full px-3 py-1.5 shadow-md">
         <span className="text-black font-mono text-base font-bold">{formattedTime}</span>
       </div>
