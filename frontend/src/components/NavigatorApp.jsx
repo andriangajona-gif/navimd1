@@ -141,7 +141,7 @@ export default function NavigatorApp() {
       center: DEFAULT_CENTER,
       zoom: 12,
       minZoom: 6,
-      maxZoom: 19,
+      maxZoom: 16,
       attributionControl: false,
       pitchWithRotate: true,
       dragRotate: true,
