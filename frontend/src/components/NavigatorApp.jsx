@@ -132,16 +132,16 @@ export default function NavigatorApp() {
   }, []);
   const formattedTime = currentTime.toLocaleTimeString('ro-RO', { hour: '2-digit', minute: '2-digit', hour12: false });
 
-  // Inițializare hartă
+  // Inițializare hartă - zoom maxim global 16
   useEffect(() => {
     if (mapRef.current) return;
     const map = new maplibregl.Map({
       container: mapContainerRef.current,
       style: STYLE_URL,
       center: DEFAULT_CENTER,
-      zoom: 12,
+      zoom: 16,
       minZoom: 6,
-      maxZoom: 16,
+      maxZoom: 16,        // ← LIMITĂ GLOBALĂ: nu se poate mări peste 16 niciodată
       attributionControl: false,
       pitchWithRotate: true,
       dragRotate: true,
@@ -246,7 +246,7 @@ export default function NavigatorApp() {
       el.appendChild(core);
       userMarkerRef.current = new maplibregl.Marker({ element: el, anchor: 'center' })
         .setLngLat([userPos.lon, userPos.lat]).addTo(map);
-      map.flyTo({ center: [userPos.lon, userPos.lat], zoom: 15, duration: 800 });
+      map.flyTo({ center: [userPos.lon, userPos.lat], zoom: 16, duration: 800 });
     } else {
       userMarkerRef.current.setLngLat([userPos.lon, userPos.lat]);
     }
@@ -255,7 +255,7 @@ export default function NavigatorApp() {
       const bearing = compass ?? userPos.heading ?? 0;
       map.easeTo({
         center: [userPos.lon, userPos.lat], 
-        zoom: 18,
+        zoom: 16,
         bearing: isNaN(bearing) ? 0 : bearing,
         pitch: 70, 
         duration: 500,
@@ -264,7 +264,7 @@ export default function NavigatorApp() {
     } else if (following && route) {
       map.easeTo({ 
         center: [userPos.lon, userPos.lat], 
-        zoom: 17,
+        zoom: 16,
         bearing: 0,
         pitch: 0,
         duration: 600 
@@ -294,8 +294,7 @@ export default function NavigatorApp() {
     if (destMarkerRef.current) { destMarkerRef.current.remove(); destMarkerRef.current = null; }
     const map = mapRef.current;
     if (map) {
-      map.setMaxZoom(19); // redă zoom-ul maxim implicit după terminarea navigării
-      map.easeTo({ pitch: 0, bearing: 0, zoom: 14, duration: 600 });
+      map.easeTo({ pitch: 0, bearing: 0, zoom: 16, duration: 600 });
     }
     routeGeomRef.current = null;
     setRoute(null); setRouteCoords(null); setDestination(null);
@@ -326,7 +325,11 @@ export default function NavigatorApp() {
       drawRoute(r.geometry);
       const coords = r.geometry.coordinates;
       const bounds = coords.reduce((b, c) => b.extend(c), new maplibregl.LngLatBounds(coords[0], coords[0]));
-      map.fitBounds(bounds, { padding: { top: 120, bottom: 240, left: 40, right: 40 }, duration: 800 });
+      map.fitBounds(bounds, { 
+        padding: { top: 120, bottom: 240, left: 40, right: 40 }, 
+        maxZoom: 16,   // ← nu permite zoom mai mare decât 16 la centrare
+        duration: 800 
+      });
       setFollowing(false);
     } catch (e) {
       setError('Nu s-a putut construi ruta.');
@@ -340,10 +343,9 @@ export default function NavigatorApp() {
     offRouteSinceRef.current = null;
     const map = mapRef.current;
     if (map) {
-      map.setMaxZoom(16); // limitează zoom-ul în timpul navigării (valoare ajustabilă)
       map.easeTo({
         center: [userPos.lon, userPos.lat], 
-        zoom: 18,
+        zoom: 16,
         bearing: compass ?? userPos.heading ?? 0,
         pitch: 70,
         duration: 900,
