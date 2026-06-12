@@ -3,7 +3,6 @@ import maplibregl from 'maplibre-gl';
 import { STYLE_URL, getRoute, formatDistance, formatDuration, haversine, recordTrip, scoreRoute, getPreferredRoute } from '../lib/api';
 import SearchPanel from './SearchPanel';
 import NavigationPanel from './NavigationPanel';
-import DrawRouteModal from './DrawRouteModal';
 import { Locate } from 'lucide-react';
 
 function calcBearing(lat1, lon1, lat2, lon2) {
@@ -140,9 +139,6 @@ export default function NavigatorApp() {
   const [arrivedDest, setArrivedDest] = useState(null);
   const lastReroutedAtRef = useRef(0);
   const offRouteSinceRef = useRef(null);
-
-  const [showDrawModal, setShowDrawModal] = useState(false);
-  const [drawDestination, setDrawDestination] = useState(null);
 
   // Inițializare hartă
   useEffect(() => {
@@ -287,10 +283,9 @@ export default function NavigatorApp() {
     }
   }, [userPos, mapReady, following, route, navStarted, compass]);
 
-  // Trunchiere traseu (doar pentru rutele standard)
+  // Trunchiere traseu
   useEffect(() => {
     if (!userPos || !routeGeomRef.current || !navStarted) return;
-    if (route && route.isCustom) return;
     const coords = routeGeomRef.current;
     let closestIdx = 0;
     let minDist = Infinity;
@@ -299,48 +294,12 @@ export default function NavigatorApp() {
       if (d < minDist) { minDist = d; closestIdx = i; }
     }
     setRouteCoords(coords.slice(closestIdx));
-  }, [userPos, navStarted, route]);
+  }, [userPos, navStarted]);
 
-  // Elimină layer-ul GeoJSON personalizat
-  const removeCustomLayer = useCallback(() => {
-    if (!mapInstance) return;
-    if (mapInstance.getLayer('custom-route-layer')) {
-      mapInstance.removeLayer('custom-route-layer');
-      mapInstance.removeSource('custom-route-source');
-    }
-  }, [mapInstance]);
-
-  // Desenează rută standard (albastră) – setează coordonatele pentru overlay
-  const drawStandardRoute = useCallback((geo) => {
+  const drawRoute = useCallback((geo) => {
     routeGeomRef.current = geo.coordinates;
     setRouteCoords(geo.coordinates);
-    removeCustomLayer();
-  }, [removeCustomLayer]);
-
-  // Desenează rută personalizată (portocalie) – creează un layer GeoJSON
-  const drawCustomRoute = useCallback((geo) => {
-    routeGeomRef.current = geo.coordinates;
-    setRouteCoords(null); // dezactivează overlay-ul SVG
-    removeCustomLayer();
-    if (!mapInstance) return;
-    mapInstance.addSource('custom-route-source', {
-      type: 'geojson',
-      data: {
-        type: 'Feature',
-        geometry: geo
-      }
-    });
-    mapInstance.addLayer({
-      id: 'custom-route-layer',
-      type: 'line',
-      source: 'custom-route-source',
-      paint: {
-        'line-color': '#f59e0b',
-        'line-width': 8,
-        'line-opacity': 0.9
-      }
-    });
-  }, [mapInstance, removeCustomLayer]);
+  }, []);
 
   const resetAll = useCallback(() => {
     if (destMarkerRef.current) { destMarkerRef.current.remove(); destMarkerRef.current = null; }
@@ -353,8 +312,7 @@ export default function NavigatorApp() {
     offRouteSinceRef.current = null;
     setShowSavePrompt(false);
     setArrivedDest(null);
-    removeCustomLayer();
-  }, [removeCustomLayer]);
+  }, []);
 
   const handleSaveRoute = useCallback(() => {
     if (arrivedDest && gpsTrackRef.current.length > 5) {
@@ -380,25 +338,6 @@ export default function NavigatorApp() {
     }
   }, [navStarted, destination, resetAll]);
 
-  const handleStartDrawing = (dest) => {
-    setDrawDestination(dest);
-    setShowDrawModal(true);
-  };
-
-  const handleSaveDrawnRoute = (points) => {
-    if (!drawDestination) return;
-    const customRoutes = JSON.parse(localStorage.getItem('custom_routes') || '{}');
-    customRoutes[drawDestination.label] = {
-      track: points,
-      savedAt: Date.now(),
-      type: 'drawn'
-    };
-    localStorage.setItem('custom_routes', JSON.stringify(customRoutes));
-    alert('Ruta ta a fost salvată!');
-    setShowDrawModal(false);
-    setDrawDestination(null);
-  };
-
   const handleSelectDestination = useCallback(async (dest, useCustom = false) => {
     setError(null);
     if (!userPos) { setError('Aștept semnal GPS.'); return; }
@@ -412,36 +351,17 @@ export default function NavigatorApp() {
     destMarkerRef.current = new maplibregl.Marker({ element: el, anchor: 'bottom' })
       .setLngLat([dest.lon, dest.lat]).addTo(map);
 
-    // Curăță layer-ele de desenare temporară (din modal)
+    // Curăță orice layer rămas de la desenarea manuală (prevenire dublare linii)
     if (map && map.getLayer('drawn-route-layer')) {
       map.removeLayer('drawn-route-layer');
       map.removeSource('drawn-route');
     }
 
-    if (useCustom) {
-      const custom = getCustomRoute(dest.label);
-      const preferred = getPreferredRoute(dest.label);
-      const track = custom?.track || preferred;
-      if (track) {
-        const fakeRoute = {
-          distance: 0, duration: 0,
-          geometry: { type: 'LineString', coordinates: track },
-          steps: [{ distance: 0, duration: 0, name: '', instruction: 'Urmează ruta ta personală', type: 'depart', modifier: '', location: track[0] }],
-          isCustom: true
-        };
-        setRoute(fakeRoute); setCurrentStep(0); setNavStarted(false);
-        drawCustomRoute(fakeRoute.geometry);
-        const bounds = track.reduce((b, c) => b.extend(c), new maplibregl.LngLatBounds(track[0], track[0]));
-        map.fitBounds(bounds, { padding: { top: 120, bottom: 240, left: 40, right: 40 }, duration: 800 });
-        setFollowing(false);
-        return;
-      }
-    }
-
+    // Folosește ruta standard (ignoră complet ruta personalizată)
     try {
       const r = await getRoute(userPos.lat, userPos.lon, dest.lat, dest.lon, profile);
       setRoute(r); setCurrentStep(0); setNavStarted(false);
-      drawStandardRoute(r.geometry);
+      drawRoute(r.geometry);
       const coords = r.geometry.coordinates;
       const bounds = coords.reduce((b, c) => b.extend(c), new maplibregl.LngLatBounds(coords[0], coords[0]));
       map.fitBounds(bounds, { padding: { top: 120, bottom: 240, left: 40, right: 40 }, duration: 800 });
@@ -449,7 +369,7 @@ export default function NavigatorApp() {
     } catch (e) {
       setError('Nu s-a putut construi ruta.');
     }
-  }, [userPos, drawStandardRoute, drawCustomRoute, profile]);
+  }, [userPos, drawRoute, profile]);
 
   const startNavigation = useCallback(() => {
     if (!route || !userPos) return;
@@ -468,16 +388,11 @@ export default function NavigatorApp() {
         padding: { top: 100, bottom: 450, left: 0, right: 0 },
       });
     }
-    // Redesenează ruta standard pentru siguranță
-    if (!route.isCustom && route.geometry) {
-      drawStandardRoute(route.geometry);
-    }
-  }, [route, userPos, compass, drawStandardRoute]);
+  }, [route, userPos, compass]);
 
-  // Monitorizare abatere rută (doar pentru rutele standard)
+  // Monitorizare abatere rută
   useEffect(() => {
     if (!route || !userPos || !navStarted) return;
-    if (route.isCustom) return;
     const steps = route.steps || [];
     let nextIdx = currentStep;
     for (let i = currentStep; i < steps.length; i++) {
@@ -501,7 +416,7 @@ export default function NavigatorApp() {
         offRouteSinceRef.current = null;
         setRerouting(true);
         getRoute(userPos.lat, userPos.lon, destination.lat, destination.lon, profile)
-          .then((r) => { setRoute(r); setCurrentStep(0); drawStandardRoute(r.geometry); })
+          .then((r) => { setRoute(r); setCurrentStep(0); drawRoute(r.geometry); })
           .catch(() => {})
           .finally(() => setRerouting(false));
       }
@@ -518,7 +433,7 @@ export default function NavigatorApp() {
         }, 2000);
       }
     }
-  }, [userPos, route, currentStep, destination, navStarted, profile, drawStandardRoute, rerouting]);
+  }, [userPos, route, currentStep, destination, navStarted, profile, drawRoute, rerouting]);
 
   const recenter = () => {
     if (userPos && mapRef.current) {
@@ -530,16 +445,13 @@ export default function NavigatorApp() {
   return (
     <div className="App" style={{ position: 'relative' }}>
       <div ref={mapContainerRef} className="absolute inset-0" />
-      {mapInstance && routeCoords && route && !route.isCustom && (
+      {mapInstance && routeCoords && (
         <RouteOverlay routeCoords={routeCoords} map={mapInstance} />
       )}
       {!route && (
         <SearchPanel
           onSelectDestination={handleSelectDestination}
           userPos={userPos}
-          getCustomRoute={getCustomRoute}
-          getPreferredRoute={getPreferredRoute}
-          onDrawRoute={handleStartDrawing}
         />
       )}
 
@@ -581,17 +493,6 @@ export default function NavigatorApp() {
           navStarted={navStarted}
           onStart={startNavigation}
           rerouting={rerouting}
-        />
-      )}
-
-      {showDrawModal && mapInstance && drawDestination && (
-        <DrawRouteModal
-          isOpen={showDrawModal}
-          onClose={() => setShowDrawModal(false)}
-          onSave={handleSaveDrawnRoute}
-          map={mapInstance}
-          startPoint={userPos ? [userPos.lon, userPos.lat] : DEFAULT_CENTER}
-          destPoint={[drawDestination.lon, drawDestination.lat]}
         />
       )}
     </div>
