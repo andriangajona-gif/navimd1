@@ -122,7 +122,6 @@ export default function NavigatorApp() {
   const lastReroutedAtRef = useRef(0);
   const offRouteSinceRef = useRef(null);
 
-  // Inițializare hartă
   useEffect(() => {
     if (mapRef.current) return;
     const map = new maplibregl.Map({
@@ -175,7 +174,6 @@ export default function NavigatorApp() {
     return () => { map.remove(); mapRef.current = null; };
   }, []);
 
-  // Compass
   useEffect(() => {
     const handler = (e) => {
       const deg = e.webkitCompassHeading ?? e.alpha;
@@ -189,7 +187,6 @@ export default function NavigatorApp() {
     return () => window.removeEventListener('deviceorientation', handler, true);
   }, []);
 
-  // Geolocație
   useEffect(() => {
     if (!('geolocation' in navigator)) return;
     const onPos = (pos) => {
@@ -207,7 +204,6 @@ export default function NavigatorApp() {
     return () => { if (watchIdRef.current) navigator.geolocation.clearWatch(watchIdRef.current); };
   }, []);
 
-  // WakeLock
   useEffect(() => {
     const wakeLockManager = wakeLockManagerRef.current;
     if (navStarted) wakeLockManager.acquire();
@@ -224,7 +220,6 @@ export default function NavigatorApp() {
     return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
   }, [navStarted]);
 
-  // Actualizare marker utilizator și cameră
   useEffect(() => {
     if (!mapReady || !userPos) return;
     const map = mapRef.current;
@@ -262,7 +257,6 @@ export default function NavigatorApp() {
     }
   }, [userPos, mapReady, following, route, navStarted, compass]);
 
-  // Trunchiere traseu
   useEffect(() => {
     if (!userPos || !routeGeomRef.current || !navStarted) return;
     const coords = routeGeomRef.current;
@@ -338,7 +332,6 @@ export default function NavigatorApp() {
     }
   }, [route, userPos, compass]);
 
-  // Monitorizare abatere rută și sosire (fără popup)
   useEffect(() => {
     if (!route || !userPos || !navStarted) return;
     const steps = route.steps || [];
@@ -372,7 +365,6 @@ export default function NavigatorApp() {
       offRouteSinceRef.current = null;
     }
     
-    // La sosire, doar resetăm traseul fără niciun popup
     if (destination) {
       const dArr = haversine(userPos.lat, userPos.lon, destination.lat, destination.lon);
       if (dArr < 25) {
