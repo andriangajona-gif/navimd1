@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Search, X, MapPin, Building2, ChevronRight, ArrowLeft, Star, Clock, Pencil, Trash2 } from 'lucide-react';
+import { Search, X, MapPin, Building2, ChevronRight, ArrowLeft } from 'lucide-react';
 import { searchStreets, geocodeBuilding } from '../lib/api';
 
 const MANUAL_COORDS = {
@@ -8,15 +8,13 @@ const MANUAL_COORDS = {
   "67": { lat: 47.90616, lon: 28.28910 },
 };
 
-export default function SearchPanel({ onSelectDestination, getCustomRoute, getPreferredRoute, onDrawRoute }) {
+export default function SearchPanel({ onSelectDestination, userPos }) {
   const [q, setQ] = useState('');
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [results, setResults] = useState([]);
   const [selectedStreet, setSelectedStreet] = useState(null);
   const [error, setError] = useState(null);
-  const [pendingDest, setPendingDest] = useState(null);
-  const [hasDrawnRoute, setHasDrawnRoute] = useState(false);
   const debounceRef = useRef(null);
   const abortRef = useRef(null);
 
@@ -109,47 +107,12 @@ export default function SearchPanel({ onSelectDestination, getCustomRoute, getPr
       city: selectedStreet.parent_name,
     };
 
-    // Verifică dacă există rută desenată pentru această destinație
-    const customRoutes = JSON.parse(localStorage.getItem('custom_routes') || '{}');
-    const hasDrawn = !!customRoutes[dest.label];
-
-    setPendingDest(dest);
-    setHasDrawnRoute(hasDrawn);
-    setOpen(false);
-  };
-
-  const handleStandardRoute = () => {
-    if (pendingDest) {
-      onSelectDestination(pendingDest, false);
-      resetAfterSelect();
-    }
-  };
-
-  const handleDrawnRoute = () => {
-    if (pendingDest) {
-      onSelectDestination(pendingDest, true);
-      resetAfterSelect();
-    }
-  };
-
-  const handleDrawNewRoute = () => {
-    if (pendingDest && onDrawRoute) {
-      onDrawRoute(pendingDest);
-      resetAfterSelect();
-    }
-  };
-
-  const handleDeleteDrawnRoute = () => {
-    if (pendingDest) {
-      const customRoutes = JSON.parse(localStorage.getItem('custom_routes') || '{}');
-      delete customRoutes[pendingDest.label];
-      localStorage.setItem('custom_routes', JSON.stringify(customRoutes));
-      setHasDrawnRoute(false);
-    }
+    // Apelează direct ruta standard
+    onSelectDestination(dest, false);
+    resetAfterSelect();
   };
 
   const resetAfterSelect = () => {
-    setPendingDest(null);
     setQ('');
     setSelectedStreet(null);
     setResults([]);
@@ -159,46 +122,8 @@ export default function SearchPanel({ onSelectDestination, getCustomRoute, getPr
   const reset = () => {
     if (abortRef.current) abortRef.current.abort();
     setQ(''); setResults([]); setSelectedStreet(null);
-    setError(null); setPendingDest(null);
+    setError(null);
   };
-
-  // Fereastra de selecție a rutei
-  if (pendingDest) {
-    return (
-      <div className="absolute inset-0 z-50 bg-black/30 backdrop-blur-sm flex items-end">
-        <div className="bg-white/30 backdrop-blur-sm border-t border-white/40 rounded-t-2xl p-5 w-full">
-          <div className="text-[17px] font-bold text-black mb-1">Маршрут к дому</div>
-          <div className="text-[14px] text-black/80 mb-4 bg-white/30 p-2.5 rounded-lg">{pendingDest.street}, дом {pendingDest.building}</div>
-          
-          {/* Ruta standard */}
-          <button onClick={handleStandardRoute} className="w-full mb-3 py-3.5 rounded-xl bg-white/40 border border-white/50 text-black font-semibold">
-            Rută standard (mașină)
-          </button>
-          
-          {/* Dacă există rută desenată salvată */}
-          {hasDrawnRoute && (
-            <button onClick={handleDrawnRoute} className="w-full mb-3 py-3.5 rounded-xl bg-amber-500/80 text-white font-bold flex items-center justify-center gap-2">
-              <Star size={18} fill="currentColor" /> Ruta mea cu scuterul
-            </button>
-          )}
-          
-          {/* Desenează rută nouă */}
-          <button onClick={handleDrawNewRoute} className="w-full mb-3 py-3.5 rounded-xl bg-amber-500/80 text-white font-bold flex items-center justify-center gap-2">
-            <Pencil size={18} /> Desenează ruta mea (scuter)
-          </button>
-          
-          {/* Șterge rută salvată (dacă există) */}
-          {hasDrawnRoute && (
-            <button onClick={handleDeleteDrawnRoute} className="w-full mb-3 py-3.5 rounded-xl bg-red-500/80 text-white font-semibold flex items-center justify-center gap-2">
-              <Trash2 size={18} /> Șterge ruta mea
-            </button>
-          )}
-          
-          <button onClick={reset} className="w-full mt-3 py-2 text-black/50">Отмена</button>
-        </div>
-      </div>
-    );
-  }
 
   return (
     <div className="absolute top-3 left-3 right-3 z-30">
