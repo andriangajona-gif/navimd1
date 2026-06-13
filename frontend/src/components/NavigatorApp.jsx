@@ -90,7 +90,7 @@ function RouteOverlay({ routeCoords, map }) {
 
   if (points.length < 2) return null;
   return (
-    <svg style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', pointerEvents: 'none', zIndex: 10, className: 'svg-route-overlay' }}>
+    <svg style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', pointerEvents: 'none', zIndex: 10 }}>
       <polyline points={points.join(' ')} fill="none" stroke="#1d4ed8" strokeWidth="10" strokeOpacity="0.3" strokeLinecap="round" strokeLinejoin="round" />
       <polyline points={points.join(' ')} fill="none" stroke="#2c7be5" strokeWidth="6" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
@@ -132,7 +132,7 @@ export default function NavigatorApp() {
   }, []);
   const formattedTime = currentTime.toLocaleTimeString('ro-RO', { hour: '2-digit', minute: '2-digit', hour12: false });
 
-  // Inițializare hartă - mod 2D (fără înclinare), zoom maxim 17
+  // Inițializare hartă - mod 2D, zoom maxim 17
   useEffect(() => {
     if (mapRef.current) return;
     const map = new maplibregl.Map({
@@ -234,49 +234,25 @@ export default function NavigatorApp() {
     return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
   }, [navStarted]);
 
-  // Actualizare marker utilizator și cameră - CU MAȘINA ROȘIE
+  // Actualizare marker utilizator (punct albastru)
   useEffect(() => {
     if (!mapReady || !userPos) return;
     const map = mapRef.current;
     if (!userMarkerRef.current) {
-      // Creează elementul pentru mașina Ferrari roșie
       const el = document.createElement('div');
-      el.className = 'user-car-marker';
-      el.innerHTML = `
-        <svg width="36" height="36" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
-          <path d="M4 14 L28 14 L30 18 L28 22 L4 22 L2 18 Z" fill="#cc0000" stroke="#990000" stroke-width="1.5"/>
-          <rect x="6" y="16" width="20" height="4" fill="#cc0000" stroke="#990000" stroke-width="1"/>
-          <circle cx="10" cy="22" r="3.5" fill="#333" stroke="#111" stroke-width="1"/>
-          <circle cx="22" cy="22" r="3.5" fill="#333" stroke="#111" stroke-width="1"/>
-          <path d="M8 14 L12 7 L20 7 L24 14" fill="#cc0000" stroke="#990000" stroke-width="1.5"/>
-          <rect x="13" y="8" width="6" height="6" fill="#ffcc00" rx="1"/>
-          <path d="M16 8 L16 14" stroke="#cc0000" stroke-width="1.5"/>
-          <path d="M14 10 L18 10" stroke="#333" stroke-width="1"/>
-          <text x="16" y="19" font-size="4" fill="#fff" text-anchor="middle" font-weight="bold">F</text>
-        </svg>
-      `;
-      el.style.transformOrigin = 'center';
-      el.style.filter = 'drop-shadow(0 2px 4px rgba(0,0,0,0.4))';
+      el.className = 'user-dot';
+      const core = document.createElement('div');
+      core.className = 'user-dot-core';
+      el.appendChild(core);
       userMarkerRef.current = new maplibregl.Marker({ element: el, anchor: 'center' })
-        .setLngLat([userPos.lon, userPos.lat])
-        .addTo(map);
+        .setLngLat([userPos.lon, userPos.lat]).addTo(map);
       map.flyTo({ center: [userPos.lon, userPos.lat], zoom: 17, duration: 800 });
     } else {
       userMarkerRef.current.setLngLat([userPos.lon, userPos.lat]);
     }
-    // Rotește mașina în funcție de bearing (direcția de deplasare)
-    const el = userMarkerRef.current.getElement();
-    let bearing = 0;
-    if (navStarted) {
-      bearing = compass ?? userPos.heading ?? 0;
-    } else if (route && following && !navStarted) {
-      // Opțional: poți folosi direcția primului segment al rutei
-      bearing = 0;
-    }
-    el.style.transform = `rotate(${bearing}deg)`;
-
-    // Mișcările camerei (zoom, centrare, pitch=0)
+    
     if (following && navStarted && route) {
+      const bearing = compass ?? userPos.heading ?? 0;
       map.easeTo({
         center: [userPos.lon, userPos.lat], 
         zoom: 17,
