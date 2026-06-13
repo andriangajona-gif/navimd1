@@ -5,25 +5,6 @@
   overflow: hidden;
 }
 
-/* Marker-ul mașinii Ferrari roșie */
-.user-car-marker {
-  z-index: 100 !important;
-  transition: transform 0.15s ease-out;
-  cursor: pointer;
-  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.3));
-}
-
-/* Stratul rutei (svg) – trebuie să fie sub mașină */
-.svg-route-overlay {
-  z-index: 10;
-}
-
-/* Marker-ul destinației */
-.dest-marker {
-  z-index: 20;
-}
-
-/* Punctul utilizator original (dacă mai există vreun fallback) */
 .user-dot {
   width: 20px;
   height: 20px;
@@ -43,4 +24,6 @@
   left: 5px;
 }
 
-/* Alte stiluri generale (dacă există) – păstrează ce ai deja */
+.dest-marker {
+  color: #ef4444;
+}
