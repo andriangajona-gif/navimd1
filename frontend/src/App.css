@@ -1,1 +1,46 @@
-.App { height: 100vh; height: 100dvh; width: 100vw; overflow: hidden; }
+.App {
+  height: 100vh;
+  height: 100dvh;
+  width: 100vw;
+  overflow: hidden;
+}
+
+/* Marker-ul mașinii Ferrari roșie */
+.user-car-marker {
+  z-index: 100 !important;
+  transition: transform 0.15s ease-out;
+  cursor: pointer;
+  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.3));
+}
+
+/* Stratul rutei (svg) – trebuie să fie sub mașină */
+.svg-route-overlay {
+  z-index: 10;
+}
+
+/* Marker-ul destinației */
+.dest-marker {
+  z-index: 20;
+}
+
+/* Punctul utilizator original (dacă mai există vreun fallback) */
+.user-dot {
+  width: 20px;
+  height: 20px;
+  background-color: #3b82f6;
+  border-radius: 50%;
+  border: 3px solid white;
+  box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.2);
+}
+
+.user-dot-core {
+  width: 10px;
+  height: 10px;
+  background-color: white;
+  border-radius: 50%;
+  position: absolute;
+  top: 5px;
+  left: 5px;
+}
+
+/* Alte stiluri generale (dacă există) – păstrează ce ai deja */
