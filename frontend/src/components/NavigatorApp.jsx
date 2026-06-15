@@ -234,74 +234,42 @@ export default function NavigatorApp() {
     return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
   }, [navStarted]);
 
-  // Creare și actualizare marker utilizator (săgeată albastră)
+  // Actualizare marker utilizator (punct albastru)
   useEffect(() => {
     if (!mapReady || !userPos) return;
     const map = mapRef.current;
-    if (!map) return;
-
-    // Dacă markerul nu există, îl creăm
     if (!userMarkerRef.current) {
       const el = document.createElement('div');
-      el.className = 'user-arrow-marker';
-      el.innerHTML = `
-        <svg width="30" height="30" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-          <path d="M12 2 L12 22 M12 2 L6 8 M12 2 L18 8" stroke="#3b82f6" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
-          <circle cx="12" cy="12" r="2" fill="#3b82f6"/>
-        </svg>
-      `;
-      el.style.transformOrigin = 'center';
-      el.style.filter = 'drop-shadow(0 2px 4px rgba(0,0,0,0.2))';
+      el.className = 'user-dot';
+      const core = document.createElement('div');
+      core.className = 'user-dot-core';
+      el.appendChild(core);
       userMarkerRef.current = new maplibregl.Marker({ element: el, anchor: 'center' })
         .setLngLat([userPos.lon, userPos.lat])
         .addTo(map);
-    } else {
-      // Actualizează poziția
-      userMarkerRef.current.setLngLat([userPos.lon, userPos.lat]);
-    }
-
-    // Rotire săgeată
-    const el = userMarkerRef.current.getElement();
-    let bearing = 0;
-    if (navStarted) {
-      bearing = compass ?? userPos.heading ?? 0;
-    }
-    el.style.transform = `rotate(${bearing}deg)`;
-  }, [mapReady, userPos, navStarted, compass]);
-
-  // Gestionare mișcări cameră (centrare, urmărire)
-  useEffect(() => {
-    if (!mapReady || !userPos) return;
-    const map = mapRef.current;
-    if (!map) return;
-
-    // Dacă este prima dată când avem userPos, centrează harta instantaneu fără animație
-    // Folosim un ref pentru a ști dacă este prima centrare
-    if (!window._hasCentered) {
-      window._hasCentered = true;
       map.setCenter([userPos.lon, userPos.lat]);
       map.setZoom(17);
-      return;
+    } else {
+      userMarkerRef.current.setLngLat([userPos.lon, userPos.lat]);
     }
-
-    // Dacă nu este prima centrare, aplică animații doar în anumite condiții
+    
     if (following && navStarted && route) {
-      const bearingForCam = compass ?? userPos.heading ?? 0;
+      const bearing = compass ?? userPos.heading ?? 0;
       map.easeTo({
-        center: [userPos.lon, userPos.lat],
+        center: [userPos.lon, userPos.lat], 
         zoom: 17,
-        bearing: isNaN(bearingForCam) ? 0 : bearingForCam,
+        bearing: isNaN(bearing) ? 0 : bearing,
         pitch: 0,
         duration: 500,
-        padding: { top: 100, bottom: 450, left: 0, right: 0 },
+        padding: { top: 100, bottom: 450, left: 0, right: 0 }, 
       });
     } else if (following && route) {
-      map.easeTo({
-        center: [userPos.lon, userPos.lat],
+      map.easeTo({ 
+        center: [userPos.lon, userPos.lat], 
         zoom: 17,
         bearing: 0,
         pitch: 0,
-        duration: 600,
+        duration: 600 
       });
     }
   }, [userPos, mapReady, following, route, navStarted, compass]);
@@ -334,7 +302,6 @@ export default function NavigatorApp() {
     setRoute(null); setRouteCoords(null); setDestination(null);
     setCurrentStep(0); setNavStarted(false);
     offRouteSinceRef.current = null;
-    window._hasCentered = false; // resetează flag-ul pentru următoarea sesiune
   }, []);
 
   const clearRoute = useCallback(() => {
