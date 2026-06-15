@@ -420,9 +420,9 @@ export default function NavigatorApp() {
         />
       )}
 
-      {/* Ceas digital */}
-      <div className="absolute top-3 right-3 z-40 bg-white/30 backdrop-blur-sm border border-white/40 rounded-full px-3 py-1.5 shadow-md">
-        <span className="text-black font-mono text-base font-bold">{formattedTime}</span>
+      {/* Ceas digital mărit */}
+      <div className="absolute top-3 right-3 z-40 bg-white/30 backdrop-blur-sm border border-white/40 rounded-full px-4 py-2 shadow-md min-w-[70px] text-center">
+        <span className="text-black font-mono text-xl font-bold">{formattedTime}</span>
       </div>
 
       <div className="absolute right-3 bottom-48 z-30 flex flex-col gap-2">
