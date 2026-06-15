@@ -234,14 +234,16 @@ export default function NavigatorApp() {
     return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
   }, [navStarted]);
 
-  // Actualizare marker utilizator (săgeată albastră)
+  // Actualizare marker utilizator (săgeată albastră) și centrare hartă
   useEffect(() => {
     if (!mapReady || !userPos) return;
     const map = mapRef.current;
-    if (!userMarkerRef.current) {
+    const isFirstTime = !userMarkerRef.current; // prima creare
+
+    if (isFirstTime) {
+      // Creează elementul săgeții
       const el = document.createElement('div');
       el.className = 'user-arrow-marker';
-      // SVG săgeată albastră orientată în sus (0 grade), va fi rotită cu CSS
       el.innerHTML = `
         <svg width="30" height="30" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
           <path d="M12 2 L12 22 M12 2 L6 8 M12 2 L18 8" stroke="#3b82f6" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
@@ -253,11 +255,16 @@ export default function NavigatorApp() {
       userMarkerRef.current = new maplibregl.Marker({ element: el, anchor: 'center' })
         .setLngLat([userPos.lon, userPos.lat])
         .addTo(map);
-      map.flyTo({ center: [userPos.lon, userPos.lat], zoom: 17, duration: 800 });
+      
+      // Setează centrul hărții instantaneu (fără animație)
+      map.setCenter([userPos.lon, userPos.lat]);
+      map.setZoom(17);
     } else {
+      // Actualizează poziția markerului
       userMarkerRef.current.setLngLat([userPos.lon, userPos.lat]);
     }
-    // Rotire săgeată în funcție de bearing (dacă există)
+
+    // Rotire săgeată în funcție de bearing
     const el = userMarkerRef.current.getElement();
     let bearing = 0;
     if (navStarted) {
@@ -265,8 +272,8 @@ export default function NavigatorApp() {
     }
     el.style.transform = `rotate(${bearing}deg)`;
 
-    // Mișcări cameră
-    if (following && navStarted && route) {
+    // Mișcări automate ale camerei doar după inițializare și în anumite condiții
+    if (!isFirstTime && following && navStarted && route) {
       const bearingForCam = compass ?? userPos.heading ?? 0;
       map.easeTo({
         center: [userPos.lon, userPos.lat], 
@@ -276,7 +283,7 @@ export default function NavigatorApp() {
         duration: 500,
         padding: { top: 100, bottom: 450, left: 0, right: 0 }, 
       });
-    } else if (following && route) {
+    } else if (!isFirstTime && following && route) {
       map.easeTo({ 
         center: [userPos.lon, userPos.lat], 
         zoom: 17,
