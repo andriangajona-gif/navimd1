@@ -40,6 +40,37 @@ function pointToSegMeters(pLat, pLon, aLat, aLon, bLat, bLon) {
   return Math.hypot(px - cx, py - cy);
 }
 
+// Găsește indexul celui mai apropiat punct de pe traseu și poziția interpolată
+function findClosestPointOnRoute(lat, lon, coords) {
+  if (!coords || coords.length < 2) return { index: 0, point: coords[0] };
+  let minDist = Infinity;
+  let bestIdx = 0;
+  let bestPoint = coords[0];
+  for (let i = 0; i < coords.length - 1; i++) {
+    const a = coords[i];
+    const b = coords[i+1];
+    const t = projectPointOnSegment(lat, lon, a[1], a[0], b[1], b[0]);
+    const projLat = a[1] + t * (b[1] - a[1]);
+    const projLon = a[0] + t * (b[0] - a[0]);
+    const d = haversine(lat, lon, projLat, projLon);
+    if (d < minDist) {
+      minDist = d;
+      bestIdx = i;
+      bestPoint = [projLon, projLat];
+    }
+  }
+  return { index: bestIdx, point: bestPoint };
+}
+
+function projectPointOnSegment(pLat, pLon, aLat, aLon, bLat, bLon) {
+  const dx = bLon - aLon;
+  const dy = bLat - aLat;
+  const len2 = dx*dx + dy*dy;
+  if (len2 === 0) return 0;
+  let t = ((pLon - aLon) * dx + (pLat - aLat) * dy) / len2;
+  return Math.max(0, Math.min(1, t));
+}
+
 const DEFAULT_CENTER = [28.8474, 47.0124];
 
 class WakeLockManager {
@@ -274,17 +305,15 @@ export default function NavigatorApp() {
     }
   }, [userPos, mapReady, following, route, navStarted, compass]);
 
-  // Trunchiere traseu
+  // Trunchiere traseu (îmbunătățită – găsește punctul interpolat)
   useEffect(() => {
     if (!userPos || !routeGeomRef.current || !navStarted) return;
-    const coords = routeGeomRef.current;
-    let closestIdx = 0;
-    let minDist = Infinity;
-    for (let i = 0; i < coords.length - 1; i++) {
-      const d = pointToSegMeters(userPos.lat, userPos.lon, coords[i][1], coords[i][0], coords[i+1][1], coords[i+1][0]);
-      if (d < minDist) { minDist = d; closestIdx = i; }
-    }
-    setRouteCoords(coords.slice(closestIdx));
+    const fullCoords = routeGeomRef.current;
+    if (fullCoords.length < 2) return;
+    const { index, point } = findClosestPointOnRoute(userPos.lat, userPos.lon, fullCoords);
+    // Construim noul traseu de la punctul apropiat până la final
+    const newCoords = [point, ...fullCoords.slice(index + 1)];
+    setRouteCoords(newCoords);
   }, [userPos, navStarted]);
 
   const drawRoute = useCallback((geo) => {
@@ -345,6 +374,12 @@ export default function NavigatorApp() {
     offRouteSinceRef.current = null;
     const map = mapRef.current;
     if (map) {
+      // Trunchiem imediat traseul la poziția curentă
+      if (routeGeomRef.current) {
+        const { index, point } = findClosestPointOnRoute(userPos.lat, userPos.lon, routeGeomRef.current);
+        const newCoords = [point, ...routeGeomRef.current.slice(index + 1)];
+        setRouteCoords(newCoords);
+      }
       map.easeTo({
         center: [userPos.lon, userPos.lat], 
         zoom: 17,
