@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Search, X, MapPin, Building2, ChevronRight, ArrowLeft } from 'lucide-react';
+import { Search, X, MapPin, Building2, ChevronRight, ArrowLeft, RefreshCw } from 'lucide-react';
 import { searchStreets, geocodeBuilding, saveSearch, getSearchHistory, deleteSearch } from '../lib/api';
 
 const MANUAL_COORDS = {
@@ -38,10 +38,12 @@ export default function SearchPanel({ onSelectDestination, userPos }) {
   const [q, setQ] = useState('');
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [loadingHistory, setLoadingHistory] = useState(false);
   const [results, setResults] = useState([]);
   const [selectedStreet, setSelectedStreet] = useState(null);
   const [error, setError] = useState(null);
   const [searchHistory, setSearchHistory] = useState([]);
+  const [historyError, setHistoryError] = useState(null);
   const debounceRef = useRef(null);
   const abortRef = useRef(null);
 
@@ -50,8 +52,17 @@ export default function SearchPanel({ onSelectDestination, userPos }) {
   }, []);
 
   const loadHistory = async () => {
-    const history = await getSearchHistory(10);
-    setSearchHistory(history);
+    setLoadingHistory(true);
+    setHistoryError(null);
+    try {
+      const history = await getSearchHistory(10);
+      setSearchHistory(history || []);
+    } catch (err) {
+      console.warn('Failed to load history:', err);
+      setHistoryError('Nu s-a putut încărca istoricul');
+    } finally {
+      setLoadingHistory(false);
+    }
   };
 
   useEffect(() => {
@@ -82,7 +93,9 @@ export default function SearchPanel({ onSelectDestination, userPos }) {
           setError('Ничего не найдено');
         } else {
           setError(null);
+          // Salvează căutarea doar dacă există rezultate
           await saveSearch(query);
+          // Reîncarcă istoricul pentru a-l actualiza
           loadHistory();
         }
       } catch (e) {
@@ -176,12 +189,19 @@ export default function SearchPanel({ onSelectDestination, userPos }) {
 
   // Afișează istoricul dacă nu este selectată nicio stradă și bara este goală/sau o literă
   const showHistory = !selectedStreet && q.trim().length < 2 && searchHistory.length > 0;
+  const showHistoryEmpty = !selectedStreet && q.trim().length < 2 && searchHistory.length === 0 && !loadingHistory;
 
   return (
     <div className="absolute top-3 left-3 right-3 z-30">
-      {/* Badge de debug – arată numărul de elemente din istoric */}
-      <div className="absolute -top-6 right-0 bg-blue-500 text-white text-xs px-2 py-0.5 rounded-full">
-        📋 {searchHistory.length}
+      {/* Badge diagnostic – arată numărul de elemente din istoric */}
+      <div className="absolute -top-7 right-0 flex items-center gap-2">
+        <button 
+          onClick={loadHistory} 
+          className="bg-blue-500 hover:bg-blue-600 text-white text-xs px-2 py-0.5 rounded-full flex items-center gap-1"
+        >
+          <RefreshCw size={12} className={loadingHistory ? 'animate-spin' : ''} />
+          {loadingHistory ? '...' : `📋 ${searchHistory.length}`}
+        </button>
       </div>
 
       <div className="bg-white/30 backdrop-blur-sm border border-white/40 rounded-xl flex items-center px-3 py-2 gap-2">
@@ -195,7 +215,6 @@ export default function SearchPanel({ onSelectDestination, userPos }) {
           value={selectedStreet ? `${selectedStreet.name}, ${selectedStreet.parent_name}` : q}
           onChange={(e) => { setQ(e.target.value); setOpen(true); }}
           onFocus={() => {
-            // Dacă este selectată o stradă și bara este goală, resetăm selecția pentru a vedea istoricul
             if (selectedStreet && q.trim() === '') {
               setSelectedStreet(null);
               setResults([]);
@@ -233,29 +252,48 @@ export default function SearchPanel({ onSelectDestination, userPos }) {
                 </>
               )}
 
-              {showHistory && (
-                <div>
-                  <div className="px-3 py-2 text-[12px] font-semibold text-black/70 border-b border-white/30">📜 Căutări recente</div>
-                  {searchHistory.map(item => (
-                    <div key={item.id} className="flex items-center justify-between px-3 py-2 hover:bg-white/20 border-b border-white/30">
-                      <button
-                        onClick={() => {
-                          setQ(item.query);
-                          setOpen(true);
-                        }}
-                        className="flex-1 text-left text-black"
-                      >
-                        {item.query}
-                      </button>
-                      <button
-                        onClick={() => handleDeleteHistoryItem(item.id)}
-                        className="text-black/40 hover:text-red-500"
-                      >
-                        <X size={14} />
-                      </button>
+              {/* Afișează istoricul doar dacă bara are mai puțin de 2 caractere */}
+              {q.trim().length < 2 && (
+                <>
+                  {loadingHistory && (
+                    <div className="px-4 py-3 text-black/70 text-sm">Se încarcă istoricul...</div>
+                  )}
+                  
+                  {historyError && (
+                    <div className="px-4 py-3 text-red-700 text-sm">{historyError}</div>
+                  )}
+                  
+                  {!loadingHistory && !historyError && searchHistory.length > 0 && (
+                    <div>
+                      <div className="px-3 py-2 text-[12px] font-semibold text-black/70 border-b border-white/30">📜 Căutări recente</div>
+                      {searchHistory.map(item => (
+                        <div key={item.id} className="flex items-center justify-between px-3 py-2 hover:bg-white/20 border-b border-white/30">
+                          <button
+                            onClick={() => {
+                              setQ(item.query);
+                              setOpen(true);
+                            }}
+                            className="flex-1 text-left text-black"
+                          >
+                            {item.query}
+                          </button>
+                          <button
+                            onClick={() => handleDeleteHistoryItem(item.id)}
+                            className="text-black/40 hover:text-red-500"
+                          >
+                            <X size={14} />
+                          </button>
+                        </div>
+                      ))}
                     </div>
-                  ))}
-                </div>
+                  )}
+                  
+                  {!loadingHistory && !historyError && searchHistory.length === 0 && (
+                    <div className="px-4 py-3 text-black/50 text-sm text-center">
+                      Nu există căutări salvate. Caută o stradă pentru a începe.
+                    </div>
+                  )}
+                </>
               )}
             </>
           )}
