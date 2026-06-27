@@ -175,7 +175,7 @@ export default function NavigatorApp() {
   const kalmanFilterRef = useRef(new KalmanFilter2D(0.3, 1.5));
   const snapPointRef = useRef(null);
   const lastUpdateTimeRef = useRef(0);
-  const firstPositionRef = useRef(true); // Flag pentru prima poziție GPS
+  const firstPositionRef = useRef(true);
 
   const [mapReady, setMapReady] = useState(false);
   const [mapInstance, setMapInstance] = useState(null);
@@ -273,7 +273,7 @@ export default function NavigatorApp() {
     return () => window.removeEventListener('deviceorientation', handler, true);
   }, []);
 
-  // Actualizare marker utilizator (mutată într-o funcție separată)
+  // Actualizare marker utilizator
   const updateUserMarker = useCallback((lat, lon) => {
     if (!mapReady || !mapRef.current) return;
     const map = mapRef.current;
@@ -291,7 +291,7 @@ export default function NavigatorApp() {
     }
   }, [mapReady]);
 
-  // Geolocație ultra-preciză + centrare automată la prima poziție
+  // Geolocație ultra-preciză + centrare automată
   useEffect(() => {
     if (!('geolocation' in navigator)) {
       setGpsStatus('GPS indisponibil');
@@ -310,7 +310,6 @@ export default function NavigatorApp() {
       setGpsAccuracy(accuracy);
       setGpsStatus(accuracy < 10 ? 'GPS precis ✅' : 'GPS aproximativ ⚠️');
       
-      // ===== CENTRARE AUTOMATĂ LA PRIMA POZIȚIE =====
       if (firstPositionRef.current && mapRef.current) {
         firstPositionRef.current = false;
         const map = mapRef.current;
@@ -408,7 +407,7 @@ export default function NavigatorApp() {
     }
   }, [filteredUserPos, mapReady, following, route, navStarted, compass]);
 
-  // Trunchiere traseu (interpolare precisă)
+  // Trunchiere traseu
   useEffect(() => {
     if (!filteredUserPos || !routeGeomRef.current || !navStarted) return;
     const fullCoords = routeGeomRef.current;
@@ -498,7 +497,7 @@ export default function NavigatorApp() {
     }
   }, [route, rawUserPos, compass]);
 
-  // Monitorizare abatere rută și sosire
+  // Monitorizare abatere
   useEffect(() => {
     if (!route || !filteredUserPos || !navStarted) return;
     
@@ -575,13 +574,13 @@ export default function NavigatorApp() {
         />
       )}
 
-      {/* Indicator stări GPS + centrare automată */}
-      <div className="absolute top-16 left-3 z-40 flex flex-col items-start gap-1">
-        <div className="bg-black/50 backdrop-blur-sm text-white text-[10px] px-2 py-0.5 rounded-full">
+      {/* Indicator GPS - stil glass, poziționat în stânga jos */}
+      <div className="absolute bottom-32 left-3 z-40 flex flex-col items-start gap-1">
+        <div className="bg-white/20 backdrop-blur-sm border border-white/30 text-black text-[10px] px-2 py-0.5 rounded-full shadow-md">
           {gpsStatus}
         </div>
         {gpsAccuracy && navStarted && (
-          <div className="bg-black/40 backdrop-blur-sm text-white text-[10px] px-2 py-0.5 rounded-full">
+          <div className="bg-white/20 backdrop-blur-sm border border-white/30 text-black text-[10px] px-2 py-0.5 rounded-full shadow-md">
             GPS: {gpsAccuracy < 5 ? '🟢' : gpsAccuracy < 15 ? '🟡' : '🔴'} ±{Math.round(gpsAccuracy)}m
           </div>
         )}
