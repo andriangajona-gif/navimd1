@@ -8,7 +8,7 @@ const MANUAL_COORDS = {
   "67": { lat: 47.90616, lon: 28.28910 },
 };
 
-// Orașul FORȚAT pentru toate căutările și geocodările
+// Orașul FORȚAT pentru geocodare și afișare
 const DEFAULT_CITY = 'Florești';
 
 export default function SearchPanel({ onSelectDestination, userPos }) {
@@ -50,18 +50,17 @@ export default function SearchPanel({ onSelectDestination, userPos }) {
 
     debounceRef.current = setTimeout(async () => {
       try {
-        // FORȚEAZĂ căutarea în Florești
+        // Căutare în Florești (API-ul ar trebui să returneze doar rezultate din Florești)
         const data = await searchStreets(query, DEFAULT_CITY);
         if (controller.signal.aborted) return;
         
         let items = (data.results || []).filter(it => it.type === 'street');
-        // FILTREAZĂ doar străzile din Florești (siguranță suplimentară)
-        items = items.filter(it => (it.parent_name || '').toLowerCase() === DEFAULT_CITY.toLowerCase());
+        // NU mai filtra suplimentar după parent_name - ne bazăm pe API
         items = items.map(it => it.name === "str. 9 Mai" ? { ...it, name: "Strada 9 Mai" } : it);
         
         setResults(items);
         if (items.length === 0) {
-          setError(`Nu s-a găsit nicio stradă în ${DEFAULT_CITY}`);
+          setError('Ничего не найдено');
         } else {
           setError(null);
           await saveSearch(query);
@@ -87,15 +86,15 @@ export default function SearchPanel({ onSelectDestination, userPos }) {
     if (street.name === "str. 9 Mai") {
       street = { ...street, name: "Strada 9 Mai" };
     }
-    // FORȚEAZĂ parent_name = Florești
-    setSelectedStreet({ ...street, parent_name: DEFAULT_CITY });
+    // Păstrăm parent_name original (pentru eventuale utilizări), dar geocodarea va forța Florești
+    setSelectedStreet(street);
   };
 
   const handleBuildingClick = async (b) => {
     if (!selectedStreet) return;
     let lat, lon;
     const streetName = selectedStreet.name;
-    // FORȚEAZĂ orașul Florești pentru geocodare
+    // FORȚEAZĂ orașul Florești pentru geocodare (ignoră parent_name original)
     const city = DEFAULT_CITY;
 
     if (streetName === "Strada 9 Mai" && MANUAL_COORDS[b]) {
@@ -187,7 +186,7 @@ export default function SearchPanel({ onSelectDestination, userPos }) {
                       <div className="w-9 h-9 rounded-full bg-amber-500/70 flex items-center justify-center text-white"><MapPin size={18} /></div>
                       <div className="flex-1">
                         <div className="text-black font-medium">{s.name}</div>
-                        <div className="text-black/60 text-xs">{DEFAULT_CITY} · {s.count} домов</div>
+                        <div className="text-black/60 text-xs">{s.parent_name || DEFAULT_CITY} · {s.count} домов</div>
                       </div>
                       <ChevronRight size={16} className="text-black/40" />
                     </button>
