@@ -191,8 +191,6 @@ export default function NavigatorApp() {
   const [following, setFollowing] = useState(true);
   const [navStarted, setNavStarted] = useState(false);
   const [rerouting, setRerouting] = useState(false);
-  const [gpsAccuracy, setGpsAccuracy] = useState(null);
-  const [gpsStatus, setGpsStatus] = useState('Căutare GPS...');
   const lastReroutedAtRef = useRef(0);
   const offRouteSinceRef = useRef(null);
 
@@ -291,12 +289,9 @@ export default function NavigatorApp() {
     }
   }, [mapReady]);
 
-  // Geolocație ultra-preciză + centrare automată
+  // Geolocație ultra-preciză + centrare automată (fără indicator vizual)
   useEffect(() => {
-    if (!('geolocation' in navigator)) {
-      setGpsStatus('GPS indisponibil');
-      return;
-    }
+    if (!('geolocation' in navigator)) return;
     
     const onPos = (pos) => {
       const { latitude, longitude, heading, accuracy, speed } = pos.coords;
@@ -307,8 +302,6 @@ export default function NavigatorApp() {
       const filtered = kalmanFilterRef.current.update(latitude, longitude);
       setRawUserPos({ lat: latitude, lon: longitude, heading, accuracy, speed });
       setFilteredUserPos({ lat: filtered.lat, lon: filtered.lon, heading, accuracy, speed });
-      setGpsAccuracy(accuracy);
-      setGpsStatus(accuracy < 10 ? 'GPS precis ✅' : 'GPS aproximativ ⚠️');
       
       if (firstPositionRef.current && mapRef.current) {
         firstPositionRef.current = false;
@@ -343,7 +336,6 @@ export default function NavigatorApp() {
     const onErr = (e) => {
       console.warn('geoloc err', e.message);
       setError('Nu s-a putut obține geolocația.');
-      setGpsStatus('Eroare GPS');
     };
 
     const options = {
@@ -573,18 +565,6 @@ export default function NavigatorApp() {
           userPos={rawUserPos}
         />
       )}
-
-      {/* Indicator GPS - stil glass, poziționat în stânga jos */}
-      <div className="absolute bottom-32 left-3 z-40 flex flex-col items-start gap-1">
-        <div className="bg-white/20 backdrop-blur-sm border border-white/30 text-black text-[10px] px-2 py-0.5 rounded-full shadow-md">
-          {gpsStatus}
-        </div>
-        {gpsAccuracy && navStarted && (
-          <div className="bg-white/20 backdrop-blur-sm border border-white/30 text-black text-[10px] px-2 py-0.5 rounded-full shadow-md">
-            GPS: {gpsAccuracy < 5 ? '🟢' : gpsAccuracy < 15 ? '🟡' : '🔴'} ±{Math.round(gpsAccuracy)}m
-          </div>
-        )}
-      </div>
 
       {/* Ceas digital */}
       <div className="absolute top-3 right-3 z-40 bg-white/30 backdrop-blur-sm border border-white/40 rounded-full px-4 py-2 shadow-md min-w-[70px] text-center">
