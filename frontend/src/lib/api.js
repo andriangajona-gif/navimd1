@@ -22,7 +22,6 @@ export async function geocodeBuilding(street, building, city = 'Florești') {
   return data;
 }
 
-// ===== STIL HARTĂ (OpenStreetMap standard - întotdeauna funcțional) =====
 export const STYLE_URL = {
   version: 8,
   sources: {
@@ -64,7 +63,9 @@ export function haversine(lat1, lon1, lat2, lon2) {
   return 2 * R * Math.asin(Math.sqrt(a));
 }
 
-// ===== ISTORIC CĂUTĂRI =====
+// ===== ISTORIC CĂUTĂRI (cu fallback local) =====
+const LOCAL_HISTORY_KEY = 'local_search_history';
+
 export async function saveSearch(query) {
   try {
     const { data } = await api.post('/search/save', null, { params: { query } });
@@ -91,6 +92,64 @@ export async function deleteSearch(searchId) {
     return data;
   } catch (err) {
     console.warn('Failed to delete search:', err);
+    return null;
+  }
+}
+
+// Fallback local (salvează în localStorage dacă backend-ul nu răspunde)
+export async function saveSearchLocal(query) {
+  try {
+    const result = await saveSearch(query);
+    if (result) return result;
+  } catch (e) {
+    console.warn('Backend save failed, using local fallback', e);
+  }
+  
+  try {
+    const history = JSON.parse(localStorage.getItem(LOCAL_HISTORY_KEY) || '[]');
+    const filtered = history.filter(item => item.query !== query.trim());
+    filtered.unshift({ query: query.trim(), timestamp: Date.now(), id: Date.now().toString() });
+    const trimmed = filtered.slice(0, 20);
+    localStorage.setItem(LOCAL_HISTORY_KEY, JSON.stringify(trimmed));
+    return { message: 'Saved locally', id: Date.now().toString() };
+  } catch (e) {
+    console.warn('Local save failed', e);
+    return null;
+  }
+}
+
+export async function getSearchHistoryLocal(limit = 20) {
+  try {
+    const history = await getSearchHistory(limit);
+    if (history && history.length > 0) return history;
+  } catch (e) {
+    console.warn('Backend history failed, using local fallback', e);
+  }
+  
+  try {
+    const history = JSON.parse(localStorage.getItem(LOCAL_HISTORY_KEY) || '[]');
+    return history.slice(0, limit);
+  } catch (e) {
+    console.warn('Local history read failed', e);
+    return [];
+  }
+}
+
+export async function deleteSearchLocal(searchId) {
+  try {
+    const result = await deleteSearch(searchId);
+    if (result) return result;
+  } catch (e) {
+    console.warn('Backend delete failed, using local fallback', e);
+  }
+  
+  try {
+    const history = JSON.parse(localStorage.getItem(LOCAL_HISTORY_KEY) || '[]');
+    const filtered = history.filter(item => item.id !== searchId);
+    localStorage.setItem(LOCAL_HISTORY_KEY, JSON.stringify(filtered));
+    return { message: 'Deleted locally' };
+  } catch (e) {
+    console.warn('Local delete failed', e);
     return null;
   }
 }
