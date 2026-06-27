@@ -5,7 +5,7 @@ import SearchPanel from './SearchPanel';
 import NavigationPanel from './NavigationPanel';
 import { Locate } from 'lucide-react';
 
-// ===== FILTRU KALMAN 1D PENTRU POZIȚIE =====
+// ===== FILTRU KALMAN =====
 class KalmanFilter1D {
   constructor(processNoise = 0.1, measurementNoise = 2.0) {
     this.q = processNoise;
@@ -14,7 +14,6 @@ class KalmanFilter1D {
     this.x = 0;
     this.initialized = false;
   }
-
   update(measurement) {
     if (!this.initialized) {
       this.x = measurement;
@@ -35,12 +34,8 @@ class KalmanFilter2D {
     this.filterLat = new KalmanFilter1D(processNoise, measurementNoise);
     this.filterLon = new KalmanFilter1D(processNoise, measurementNoise);
   }
-
   update(lat, lon) {
-    return {
-      lat: this.filterLat.update(lat),
-      lon: this.filterLon.update(lon)
-    };
+    return { lat: this.filterLat.update(lat), lon: this.filterLon.update(lon) };
   }
 }
 
@@ -194,7 +189,7 @@ export default function NavigatorApp() {
   const lastReroutedAtRef = useRef(0);
   const offRouteSinceRef = useRef(null);
 
-  // Ceas digital
+  // Ceas
   const [currentTime, setCurrentTime] = useState(new Date());
   useEffect(() => {
     const interval = setInterval(() => {
@@ -254,7 +249,12 @@ export default function NavigatorApp() {
     map.on('error', (e) => console.warn('map err', e?.error?.message || e));
     map.on('dragstart', () => setFollowing(false));
     mapRef.current = map;
-    return () => { map.remove(); mapRef.current = null; };
+    return () => { 
+      if (mapRef.current) {
+        mapRef.current.remove(); 
+        mapRef.current = null; 
+      }
+    };
   }, []);
 
   // Compass
@@ -271,7 +271,7 @@ export default function NavigatorApp() {
     return () => window.removeEventListener('deviceorientation', handler, true);
   }, []);
 
-  // Actualizare marker utilizator
+  // Marker update
   const updateUserMarker = useCallback((lat, lon) => {
     if (!mapReady || !mapRef.current) return;
     const map = mapRef.current;
@@ -289,7 +289,7 @@ export default function NavigatorApp() {
     }
   }, [mapReady]);
 
-  // Geolocație ultra-preciză + centrare automată (fără indicator vizual)
+  // Geolocație
   useEffect(() => {
     if (!('geolocation' in navigator)) return;
     
@@ -354,22 +354,22 @@ export default function NavigatorApp() {
 
   // WakeLock
   useEffect(() => {
-    const wakeLockManager = wakeLockManagerRef.current;
-    if (navStarted) wakeLockManager.acquire();
-    else wakeLockManager.release();
-    return () => { wakeLockManager.release(); };
+    const wl = wakeLockManagerRef.current;
+    if (navStarted) wl.acquire();
+    else wl.release();
+    return () => { wl.release(); };
   }, [navStarted]);
 
   useEffect(() => {
     const handleVisibilityChange = () => {
-      const wakeLockManager = wakeLockManagerRef.current;
-      if (document.visibilityState === 'visible' && navStarted) wakeLockManager.acquire();
+      const wl = wakeLockManagerRef.current;
+      if (document.visibilityState === 'visible' && navStarted) wl.acquire();
     };
     document.addEventListener('visibilitychange', handleVisibilityChange);
     return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
   }, [navStarted]);
 
-  // Actualizare cameră
+  // Camera update
   useEffect(() => {
     if (!mapReady || !filteredUserPos) return;
     const map = mapRef.current;
@@ -399,15 +399,13 @@ export default function NavigatorApp() {
     }
   }, [filteredUserPos, mapReady, following, route, navStarted, compass]);
 
-  // Trunchiere traseu
+  // Route truncation
   useEffect(() => {
     if (!filteredUserPos || !routeGeomRef.current || !navStarted) return;
     const fullCoords = routeGeomRef.current;
     if (fullCoords.length < 2) return;
-    
     const pos = snapPointRef.current || filteredUserPos;
     if (!pos) return;
-    
     const { index, point } = findClosestPointOnRoute(pos.lat, pos.lon, fullCoords);
     const newCoords = [point, ...fullCoords.slice(index + 1)];
     setRouteCoords(newCoords);
@@ -489,10 +487,9 @@ export default function NavigatorApp() {
     }
   }, [route, rawUserPos, compass]);
 
-  // Monitorizare abatere
+  // Monitor deviation
   useEffect(() => {
     if (!route || !filteredUserPos || !navStarted) return;
-    
     const pos = snapPointRef.current || filteredUserPos;
     if (!pos) return;
 
@@ -566,7 +563,6 @@ export default function NavigatorApp() {
         />
       )}
 
-      {/* Ceas digital */}
       <div className="absolute top-3 right-3 z-40 bg-white/30 backdrop-blur-sm border border-white/40 rounded-full px-4 py-2 shadow-md min-w-[70px] text-center">
         <span className="text-black font-mono text-xl font-bold">{formattedTime}</span>
       </div>
