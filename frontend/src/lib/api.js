@@ -5,32 +5,6 @@ export const API = `${BACKEND_URL}/api`;
 
 export const api = axios.create({ baseURL: API, timeout: 45000 });
 
-// ===== CACHE PENTRU GEOCODARE (cu expirare) =====
-const GEOCODE_CACHE_KEY = 'geocode_cache_v2';
-const CACHE_TTL = 30 * 24 * 60 * 60 * 1000; // 30 de zile
-
-export function saveGeocodeCache(addressKey, lat, lon) {
-  try {
-    const cache = JSON.parse(localStorage.getItem(GEOCODE_CACHE_KEY) || '{}');
-    cache[addressKey] = { lat, lon, timestamp: Date.now() };
-    localStorage.setItem(GEOCODE_CACHE_KEY, JSON.stringify(cache));
-  } catch (e) {}
-}
-
-export function getGeocodeCache(addressKey) {
-  try {
-    const cache = JSON.parse(localStorage.getItem(GEOCODE_CACHE_KEY) || '{}');
-    const entry = cache[addressKey];
-    if (entry && (Date.now() - entry.timestamp < CACHE_TTL)) {
-      return entry;
-    }
-    return null;
-  } catch (e) {
-    return null;
-  }
-}
-
-// ===== API FUNCȚII =====
 export async function searchStreets(q, location = 'Florești') {
   const { data } = await api.get('/search', { params: { q, location, lang: 'ro' } });
   return data;
@@ -44,33 +18,19 @@ export async function getRoute(fromLat, fromLon, toLat, toLon, profile = 'drivin
 }
 
 export async function geocodeBuilding(street, building, city = 'Florești') {
-  // Verifică cache-ul înainte de a face cerere
-  const addressKey = `${street}|${building}|${city}`;
-  const cached = getGeocodeCache(addressKey);
-  if (cached) {
-    return { lat: cached.lat, lon: cached.lon };
-  }
-  
-  try {
-    const { data } = await api.get('/geocode', { params: { street, building, city } });
-    if (data.lat && data.lon) {
-      saveGeocodeCache(addressKey, data.lat, data.lon);
-    }
-    return data;
-  } catch (err) {
-    console.warn('Geocode error:', err);
-    return { lat: null, lon: null };
-  }
+  const { data } = await api.get('/geocode', { params: { street, building, city } });
+  return data;
 }
 
+// ===== STIL HARTĂ (Stadia Maps Alidade Smooth - numere case mai clare) =====
 export const STYLE_URL = {
   version: 8,
   sources: {
     osm: {
       type: 'raster',
-      tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
+      tiles: ['https://tiles.stadiamaps.com/tiles/alidade_smooth/{z}/{x}/{y}.png'],
       tileSize: 256,
-      attribution: '© OpenStreetMap contributors',
+      attribution: '© Stadia Maps, © OpenStreetMap',
     },
   },
   layers: [
