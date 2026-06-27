@@ -268,15 +268,14 @@ export default function NavigatorApp() {
     return () => window.removeEventListener('deviceorientation', handler, true);
   }, []);
 
+  // ===== ELIMINAT PUNCTUL ALB DIN INTERIOR =====
   const updateUserMarker = useCallback((lat, lon) => {
     if (!mapReady || !mapRef.current) return;
     const map = mapRef.current;
     if (!userMarkerRef.current) {
       const el = document.createElement('div');
       el.className = 'user-dot';
-      const core = document.createElement('div');
-      core.className = 'user-dot-core';
-      el.appendChild(core);
+      // NU mai creăm elementul 'core' (punctul alb)
       userMarkerRef.current = new maplibregl.Marker({ element: el, anchor: 'center' })
         .setLngLat([lon, lat])
         .addTo(map);
@@ -363,7 +362,6 @@ export default function NavigatorApp() {
     return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
   }, [navStarted]);
 
-  // ===== MODIFICAREA PRINCIPALĂ: PADDING AJUSTAT =====
   useEffect(() => {
     if (!mapReady || !filteredUserPos) return;
     const map = mapRef.current;
@@ -380,7 +378,7 @@ export default function NavigatorApp() {
         bearing: isNaN(bearing) ? 0 : bearing,
         pitch: 0,
         duration: 400,
-        padding: { top: 280, bottom: 150, left: 0, right: 0 }, // ← punctul coborât
+        padding: { top: 280, bottom: 150, left: 0, right: 0 },
       });
     } else if (following && route) {
       map.easeTo({ 
@@ -475,7 +473,7 @@ export default function NavigatorApp() {
         bearing: compass ?? rawUserPos.heading ?? 0,
         pitch: 0,
         duration: 700,
-        padding: { top: 280, bottom: 150, left: 0, right: 0 }, // ← punctul coborât
+        padding: { top: 280, bottom: 150, left: 0, right: 0 },
       });
     }
   }, [route, rawUserPos, compass]);
