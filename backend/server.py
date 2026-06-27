@@ -1,5 +1,5 @@
 from fastapi import FastAPI, APIRouter, HTTPException, Query
-from fastapi.responses import JSONResponse, FileResponse
+from fastapi.responses import JSONResponse
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
@@ -23,7 +23,7 @@ OSRM_BASE = 'https://router.project-osrm.org'
 
 client = AsyncIOMotorClient(MONGO_URL) if MONGO_URL else None
 db = client[DB_NAME] if client else None
-searches_collection = db.searches if db else None  # <-- ADAUGAT
+searches_collection = db.searches if db else None
 
 app = FastAPI(title='Navigator MD API')
 api_router = APIRouter(prefix='/api')
@@ -91,29 +91,12 @@ async def search(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@api_router.get('/search_general')
-async def search_general(
-    q: str = Query(..., min_length=1),
-    lang: str = Query('ro'),
-):
-    url = f'{MAPMD_BASE}/search'
-    params = {'q': q, 'lang': lang}
-    auth = (MAPMD_API_KEY, '')
-    try:
-        r = await http_client.get(url, params=params, auth=auth)
-        data = r.json() if r.status_code == 200 else {}
-        return data
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
 @api_router.get('/buildings')
 async def get_buildings(
     street_name: str = Query(...),
     city: str = Query('Florești'),
     lang: str = Query('ro'),
 ):
-    """Obține lista numerelor de case pentru o stradă, folosind map.md."""
     url = f'{MAPMD_BASE}/search_street'
     params = {'q': street_name, 'location': city, 'lang': lang}
     auth = (MAPMD_API_KEY, '')
@@ -146,7 +129,6 @@ async def geocode(
     city: str = Query('Florești'),
     lang: str = Query('ro'),
 ):
-    """Get precise coordinates using Nominatim OSM geocoder."""
     try:
         url = 'https://nominatim.openstreetmap.org/search'
         query = f'{building} {street}, {city}, Moldova'
