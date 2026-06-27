@@ -22,7 +22,6 @@ export async function geocodeBuilding(street, building, city = 'Florești') {
   return data;
 }
 
-// ===== STIL HARTĂ (OpenStreetMap standard - întotdeauna funcțional) =====
 export const STYLE_URL = {
   version: 8,
   sources: {
