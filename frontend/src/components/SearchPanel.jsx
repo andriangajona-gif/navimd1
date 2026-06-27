@@ -8,10 +8,8 @@ const MANUAL_COORDS = {
   "67": { lat: 47.90616, lon: 28.28910 },
 };
 
-// Cheia pentru cache-ul de geocodare în localStorage
 const GEOCODE_CACHE_KEY = 'geocode_cache';
 
-// Funcție pentru a salva coordonatele în cache
 function saveGeocodeCache(addressKey, lat, lon) {
   try {
     const cache = JSON.parse(localStorage.getItem(GEOCODE_CACHE_KEY) || '{}');
@@ -20,14 +18,12 @@ function saveGeocodeCache(addressKey, lat, lon) {
   } catch (e) {}
 }
 
-// Funcție pentru a citi coordonatele din cache
 function getGeocodeCache(addressKey) {
   try {
     const cache = JSON.parse(localStorage.getItem(GEOCODE_CACHE_KEY) || '{}');
     const entry = cache[addressKey];
     if (entry) {
-      // Opțional: verifică dacă cache-ul nu este prea vechi (ex. 30 de zile)
-      const maxAge = 30 * 24 * 60 * 60 * 1000; // 30 zile
+      const maxAge = 30 * 24 * 60 * 60 * 1000;
       if (Date.now() - entry.timestamp < maxAge) {
         return entry;
       }
@@ -117,29 +113,24 @@ export default function SearchPanel({ onSelectDestination, userPos }) {
     let lat, lon;
     const streetName = selectedStreet.name;
     const city = selectedStreet.parent_name || 'Florești';
-    const addressKey = `${streetName}|${b}|${city}`; // Cheie unică pentru cache
+    const addressKey = `${streetName}|${b}|${city}`;
 
-    // Verifică coordonatele manuale pentru "Strada 9 Mai"
     if (streetName === "Strada 9 Mai" && MANUAL_COORDS[b]) {
       lat = MANUAL_COORDS[b].lat;
       lon = MANUAL_COORDS[b].lon;
     } else {
-      // Încearcă să citești din cache
       const cached = getGeocodeCache(addressKey);
       if (cached) {
         lat = cached.lat;
         lon = cached.lon;
       } else {
-        // Geocodează normal
         try {
           const geo = await geocodeBuilding(streetName, b, city);
           if (geo.lat && geo.lon) {
             lat = geo.lat;
             lon = geo.lon;
-            // Salvează în cache
             saveGeocodeCache(addressKey, lat, lon);
           } else {
-            // Fallback la centroidul străzii
             const c = selectedStreet.centroid || { lat: 47.0124, lon: 28.8474 };
             lat = c.lat;
             lon = c.lon;
@@ -183,7 +174,13 @@ export default function SearchPanel({ onSelectDestination, userPos }) {
     setError(null);
   };
 
-  const showHistory = !selectedStreet && q.trim().length === 1 && searchHistory.length > 0;
+  // Condiție pentru afișarea istoricului:
+  // - nu este selectată nicio stradă
+  // - bara de căutare este goală SAU are exact 1 caracter (sau mai puțin de 2)
+  // - (opțional) sau când nu există rezultate și q are mai puțin de 2 caractere
+  const showHistory = !selectedStreet && 
+                       q.trim().length < 2 && 
+                       searchHistory.length > 0;
 
   return (
     <div className="absolute top-3 left-3 right-3 z-30">
@@ -209,6 +206,7 @@ export default function SearchPanel({ onSelectDestination, userPos }) {
         <div className="mt-2 bg-white/30 backdrop-blur-sm border border-white/40 rounded-xl max-h-[60vh] overflow-auto">
           {!selectedStreet && (
             <>
+              {/* Afișează rezultatele căutării doar dacă q are 2+ caractere */}
               {q.trim().length >= 2 && (
                 <>
                   {loading && <div className="px-4 py-3 text-black/70">Поиск...</div>}
@@ -227,6 +225,7 @@ export default function SearchPanel({ onSelectDestination, userPos }) {
                 </>
               )}
 
+              {/* Afișează istoricul căutărilor dacă bara este goală sau are mai puțin de 2 caractere */}
               {showHistory && (
                 <div>
                   <div className="px-3 py-2 text-[12px] font-semibold text-black/70 border-b border-white/30">📜 Căutări recente</div>
