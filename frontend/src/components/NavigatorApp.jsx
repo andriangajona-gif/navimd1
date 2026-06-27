@@ -189,7 +189,6 @@ export default function NavigatorApp() {
   const lastReroutedAtRef = useRef(0);
   const offRouteSinceRef = useRef(null);
 
-  // Ceas
   const [currentTime, setCurrentTime] = useState(new Date());
   useEffect(() => {
     const interval = setInterval(() => {
@@ -199,7 +198,6 @@ export default function NavigatorApp() {
   }, []);
   const formattedTime = currentTime.toLocaleTimeString('ro-RO', { hour: '2-digit', minute: '2-digit', hour12: false });
 
-  // Inițializare hartă
   useEffect(() => {
     if (mapRef.current) return;
     const map = new maplibregl.Map({
@@ -257,7 +255,6 @@ export default function NavigatorApp() {
     };
   }, []);
 
-  // Compass
   useEffect(() => {
     const handler = (e) => {
       const deg = e.webkitCompassHeading ?? e.alpha;
@@ -271,7 +268,6 @@ export default function NavigatorApp() {
     return () => window.removeEventListener('deviceorientation', handler, true);
   }, []);
 
-  // Marker update
   const updateUserMarker = useCallback((lat, lon) => {
     if (!mapReady || !mapRef.current) return;
     const map = mapRef.current;
@@ -289,7 +285,6 @@ export default function NavigatorApp() {
     }
   }, [mapReady]);
 
-  // Geolocație
   useEffect(() => {
     if (!('geolocation' in navigator)) return;
     
@@ -352,7 +347,6 @@ export default function NavigatorApp() {
     };
   }, [navStarted, updateUserMarker]);
 
-  // WakeLock
   useEffect(() => {
     const wl = wakeLockManagerRef.current;
     if (navStarted) wl.acquire();
@@ -369,7 +363,7 @@ export default function NavigatorApp() {
     return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
   }, [navStarted]);
 
-  // Camera update
+  // ===== MODIFICAREA PRINCIPALĂ: PADDING AJUSTAT =====
   useEffect(() => {
     if (!mapReady || !filteredUserPos) return;
     const map = mapRef.current;
@@ -386,7 +380,7 @@ export default function NavigatorApp() {
         bearing: isNaN(bearing) ? 0 : bearing,
         pitch: 0,
         duration: 400,
-        padding: { top: 100, bottom: 450, left: 0, right: 0 }, 
+        padding: { top: 280, bottom: 150, left: 0, right: 0 }, // ← punctul coborât
       });
     } else if (following && route) {
       map.easeTo({ 
@@ -399,7 +393,6 @@ export default function NavigatorApp() {
     }
   }, [filteredUserPos, mapReady, following, route, navStarted, compass]);
 
-  // Route truncation
   useEffect(() => {
     if (!filteredUserPos || !routeGeomRef.current || !navStarted) return;
     const fullCoords = routeGeomRef.current;
@@ -482,12 +475,11 @@ export default function NavigatorApp() {
         bearing: compass ?? rawUserPos.heading ?? 0,
         pitch: 0,
         duration: 700,
-        padding: { top: 100, bottom: 450, left: 0, right: 0 },
+        padding: { top: 280, bottom: 150, left: 0, right: 0 }, // ← punctul coborât
       });
     }
   }, [route, rawUserPos, compass]);
 
-  // Monitor deviation
   useEffect(() => {
     if (!route || !filteredUserPos || !navStarted) return;
     const pos = snapPointRef.current || filteredUserPos;
