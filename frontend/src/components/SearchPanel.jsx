@@ -174,16 +174,16 @@ export default function SearchPanel({ onSelectDestination, userPos }) {
     setError(null);
   };
 
-  // Condiție pentru afișarea istoricului:
-  // - nu este selectată nicio stradă
-  // - bara de căutare este goală SAU are exact 1 caracter (sau mai puțin de 2)
-  // - (opțional) sau când nu există rezultate și q are mai puțin de 2 caractere
-  const showHistory = !selectedStreet && 
-                       q.trim().length < 2 && 
-                       searchHistory.length > 0;
+  // Afișează istoricul dacă nu este selectată nicio stradă și bara este goală/sau o literă
+  const showHistory = !selectedStreet && q.trim().length < 2 && searchHistory.length > 0;
 
   return (
     <div className="absolute top-3 left-3 right-3 z-30">
+      {/* Badge de debug – arată numărul de elemente din istoric */}
+      <div className="absolute -top-6 right-0 bg-blue-500 text-white text-xs px-2 py-0.5 rounded-full">
+        📋 {searchHistory.length}
+      </div>
+
       <div className="bg-white/30 backdrop-blur-sm border border-white/40 rounded-xl flex items-center px-3 py-2 gap-2">
         {selectedStreet ? (
           <button onClick={() => setSelectedStreet(null)} className="text-black/70"><ArrowLeft size={20} /></button>
@@ -194,7 +194,16 @@ export default function SearchPanel({ onSelectDestination, userPos }) {
           type="text"
           value={selectedStreet ? `${selectedStreet.name}, ${selectedStreet.parent_name}` : q}
           onChange={(e) => { setQ(e.target.value); setOpen(true); }}
-          onFocus={() => setOpen(true)}
+          onFocus={() => {
+            // Dacă este selectată o stradă și bara este goală, resetăm selecția pentru a vedea istoricul
+            if (selectedStreet && q.trim() === '') {
+              setSelectedStreet(null);
+              setResults([]);
+              setError(null);
+              setQ('');
+            }
+            setOpen(true);
+          }}
           placeholder={selectedStreet ? 'Выберите номер дома...' : 'Поиск улицы...'}
           readOnly={!!selectedStreet}
           className="flex-1 outline-none text-black placeholder:text-black/50 bg-transparent"
@@ -206,7 +215,6 @@ export default function SearchPanel({ onSelectDestination, userPos }) {
         <div className="mt-2 bg-white/30 backdrop-blur-sm border border-white/40 rounded-xl max-h-[60vh] overflow-auto">
           {!selectedStreet && (
             <>
-              {/* Afișează rezultatele căutării doar dacă q are 2+ caractere */}
               {q.trim().length >= 2 && (
                 <>
                   {loading && <div className="px-4 py-3 text-black/70">Поиск...</div>}
@@ -225,7 +233,6 @@ export default function SearchPanel({ onSelectDestination, userPos }) {
                 </>
               )}
 
-              {/* Afișează istoricul căutărilor dacă bara este goală sau are mai puțin de 2 caractere */}
               {showHistory && (
                 <div>
                   <div className="px-3 py-2 text-[12px] font-semibold text-black/70 border-b border-white/30">📜 Căutări recente</div>
