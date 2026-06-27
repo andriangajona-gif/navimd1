@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { X, Navigation as NavIcon, ArrowUp, ArrowUpLeft, ArrowUpRight, CornerUpLeft, CornerUpRight, RotateCcw, Flag, Play, Loader2 } from 'lucide-react';
 import { formatDistance, formatDuration } from '../lib/api';
 
@@ -21,20 +21,36 @@ export default function NavigationPanel({ route, currentStep, destination, onCan
   const remainingDist = remainingSteps.reduce((a, s) => a + (s.distance || 0), 0);
   const remainingDur = remainingSteps.reduce((a, s) => a + (s.duration || 0), 0);
 
+  // Ceas digital în panoul superior (doar în navigare)
+  const [currentTime, setCurrentTime] = useState(new Date());
+  useEffect(() => {
+    if (!navStarted) return;
+    const interval = setInterval(() => {
+      setCurrentTime(new Date());
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [navStarted]);
+
+  const formattedTime = currentTime.toLocaleTimeString('ro-RO', { hour: '2-digit', minute: '2-digit', hour12: false });
+
   return (
     <>
       {navStarted && step && (
         <div className="absolute top-2 left-2 right-2 z-30">
-          {/* Panou superior - glass, fără buton X */}
-          <div className="bg-white/20 backdrop-blur-sm border border-white/30 rounded-2xl shadow-lg px-3 py-2.5 flex items-center gap-2.5">
-            <div className="w-11 h-11 rounded-xl bg-amber-500/80 flex items-center justify-center text-white shrink-0">
-              {React.cloneElement(maneuverIcon(step), { size: 24 })}
-            </div>
-            <div className="flex-1 min-w-0">
-              <div className="text-[12px] text-amber-700 font-semibold leading-none mb-0.5">
-                через {formatDistance(step.distance)}
+          <div className="bg-white/20 backdrop-blur-sm border border-white/30 rounded-2xl shadow-lg px-3 py-2.5 flex items-center justify-between gap-2.5">
+            <div className="flex items-center gap-2.5 flex-1 min-w-0">
+              <div className="w-11 h-11 rounded-xl bg-amber-500/80 flex items-center justify-center text-white shrink-0">
+                {React.cloneElement(maneuverIcon(step), { size: 24 })}
               </div>
-              <div className="text-[14px] leading-tight line-clamp-2 text-black font-medium">{step.instruction}</div>
+              <div className="flex-1 min-w-0">
+                <div className="text-[12px] text-amber-700 font-semibold leading-none mb-0.5">
+                  через {formatDistance(step.distance)}
+                </div>
+                <div className="text-[14px] leading-tight line-clamp-2 text-black font-medium">{step.instruction}</div>
+              </div>
+            </div>
+            <div className="text-black font-mono text-base font-bold bg-white/30 px-3 py-1.5 rounded-full shrink-0">
+              {formattedTime}
             </div>
           </div>
           {rerouting && (
@@ -46,7 +62,6 @@ export default function NavigationPanel({ route, currentStep, destination, onCan
         </div>
       )}
 
-      {/* Panou inferior - glass, text negru */}
       <div className="absolute bottom-0 left-0 right-0 z-30 bg-white/20 backdrop-blur-sm border-t border-white/30 rounded-t-2xl px-3 pt-3 pb-[max(env(safe-area-inset-bottom),12px)]">
         {!navStarted ? (
           <>
