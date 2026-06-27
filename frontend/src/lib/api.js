@@ -22,15 +22,15 @@ export async function geocodeBuilding(street, building, city = 'Florești') {
   return data;
 }
 
-// ===== STIL HARTĂ (Stadia Maps Alidade Smooth - numere case mai clare) =====
+// ===== STIL HARTĂ (OpenStreetMap standard - întotdeauna funcțional) =====
 export const STYLE_URL = {
   version: 8,
   sources: {
     osm: {
       type: 'raster',
-      tiles: ['https://tiles.stadiamaps.com/tiles/alidade_smooth/{z}/{x}/{y}.png'],
+      tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
       tileSize: 256,
-      attribution: '© Stadia Maps, © OpenStreetMap',
+      attribution: '© OpenStreetMap contributors',
     },
   },
   layers: [
