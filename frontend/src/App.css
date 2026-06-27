@@ -14,16 +14,6 @@
   box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.2);
 }
 
-.user-dot-core {
-  width: 10px;
-  height: 10px;
-  background-color: white;
-  border-radius: 50%;
-  position: absolute;
-  top: 5px;
-  left: 5px;
-}
-
 .dest-marker {
   color: #ef4444;
 }
