@@ -8,10 +8,10 @@ import { Locate } from 'lucide-react';
 // ===== FILTRU KALMAN 1D PENTRU POZIȚIE =====
 class KalmanFilter1D {
   constructor(processNoise = 0.1, measurementNoise = 2.0) {
-    this.q = processNoise;      // zgomotul procesului
-    this.r = measurementNoise;  // zgomotul măsurătorii
-    this.p = 1.0;               // incertitudinea estimării
-    this.x = 0;                 // valoarea estimată
+    this.q = processNoise;
+    this.r = measurementNoise;
+    this.p = 1.0;
+    this.x = 0;
     this.initialized = false;
   }
 
@@ -22,9 +22,7 @@ class KalmanFilter1D {
       this.initialized = true;
       return this.x;
     }
-    // Predict
     this.p = this.p + this.q;
-    // Update
     const k = this.p / (this.p + this.r);
     this.x = this.x + k * (measurement - this.x);
     this.p = (1 - k) * this.p;
@@ -32,9 +30,8 @@ class KalmanFilter1D {
   }
 }
 
-// ===== FILTRU KALMAN 2D PENTRU POZIȚIE =====
 class KalmanFilter2D {
-  constructor(processNoise = 0.5, measurementNoise = 3.0) {
+  constructor(processNoise = 0.3, measurementNoise = 1.5) {
     this.filterLat = new KalmanFilter1D(processNoise, measurementNoise);
     this.filterLon = new KalmanFilter1D(processNoise, measurementNoise);
   }
@@ -47,7 +44,6 @@ class KalmanFilter2D {
   }
 }
 
-// ===== FUNCȚII AUXILIARE =====
 function calcBearing(lat1, lon1, lat2, lon2) {
   const toRad = (d) => d * Math.PI / 180;
   const toDeg = (r) => r * 180 / Math.PI;
@@ -58,7 +54,6 @@ function calcBearing(lat1, lon1, lat2, lon2) {
   return (toDeg(Math.atan2(y, x)) + 360) % 360;
 }
 
-// Calcul distanță de la punct la segment (în metri)
 function pointToSegMeters(pLat, pLon, aLat, aLon, bLat, bLon) {
   const R = 6371000;
   const toRad = (d) => d * Math.PI / 180;
@@ -74,7 +69,6 @@ function pointToSegMeters(pLat, pLon, aLat, aLon, bLat, bLon) {
   return Math.hypot(px - cx, py - cy);
 }
 
-// Găsește cel mai apropiat punct pe rută (cu interpolare)
 function findClosestPointOnRoute(lat, lon, coords) {
   if (!coords || coords.length < 2) {
     return { index: 0, point: coords?.[0] || [0, 0], distance: Infinity };
@@ -82,8 +76,6 @@ function findClosestPointOnRoute(lat, lon, coords) {
   let minDist = Infinity;
   let bestIdx = 0;
   let bestPoint = coords[0];
-  let bestT = 0;
-  
   for (let i = 0; i < coords.length - 1; i++) {
     const a = coords[i];
     const b = coords[i+1];
@@ -100,13 +92,11 @@ function findClosestPointOnRoute(lat, lon, coords) {
       minDist = d;
       bestIdx = i;
       bestPoint = [projLon, projLat];
-      bestT = t;
     }
   }
-  return { index: bestIdx, point: bestPoint, distance: minDist, t: bestT };
+  return { index: bestIdx, point: bestPoint, distance: minDist };
 }
 
-// Distanță de la punct la întreaga rută
 function distToRouteMeters(lat, lon, coords) {
   if (!coords || coords.length < 2) return Infinity;
   let min = Infinity;
@@ -212,6 +202,7 @@ export default function NavigatorApp() {
     }, 1000);
     return () => clearInterval(interval);
   }, []);
+
   const formattedTime = currentTime.toLocaleTimeString('ro-RO', { hour: '2-digit', minute: '2-digit', hour12: false });
 
   // Inițializare hartă
@@ -281,70 +272,7 @@ export default function NavigatorApp() {
     return () => window.removeEventListener('deviceorientation', handler, true);
   }, []);
 
-  // Geolocație ultra-preciză
-  useEffect(() => {
-    if (!('geolocation' in navigator)) return;
-    
-    const onPos = (pos) => {
-      const { latitude, longitude, heading, accuracy, speed } = pos.coords;
-      const now = Date.now();
-      
-      // Filtrează actualizări prea frecvente (max 10Hz)
-      if (now - lastUpdateTimeRef.current < 100) return;
-      lastUpdateTimeRef.current = now;
-      
-      // Aplică filtrul Kalman pentru eliminarea zgomotului
-      const filtered = kalmanFilterRef.current.update(latitude, longitude);
-      
-      // Salvează poziția brută și filtrată
-      setRawUserPos({ lat: latitude, lon: longitude, heading, accuracy, speed });
-      setFilteredUserPos({ lat: filtered.lat, lon: filtered.lon, heading, accuracy, speed });
-      setGpsAccuracy(accuracy);
-      
-      // Dacă există rută și navigarea este pornită, aplică snap-to-route
-      if (navStarted && routeGeomRef.current && filtered) {
-        const coords = routeGeomRef.current;
-        if (coords.length >= 2) {
-          const { point, distance } = findClosestPointOnRoute(filtered.lat, filtered.lon, coords);
-          // Dacă suntem la mai puțin de 30m de rută, snap (lipim) pe rută
-          if (distance < 30) {
-            snapPointRef.current = { lat: point[1], lon: point[0], distance };
-            // Actualizează marker-ul cu poziția snapată
-            updateUserMarker(point[1], point[0]);
-          } else {
-            // Dacă suntem departe de rută, folosește poziția filtrată
-            snapPointRef.current = null;
-            updateUserMarker(filtered.lat, filtered.lon);
-          }
-        } else {
-          updateUserMarker(filtered.lat, filtered.lon);
-        }
-      } else if (filtered) {
-        updateUserMarker(filtered.lat, filtered.lon);
-      }
-    };
-
-    const onErr = (e) => {
-      console.warn('geoloc err', e.message);
-      setError('Nu s-a putut obține geolocația.');
-    };
-
-    // Opțiuni ultra-precize
-    const options = {
-      enableHighAccuracy: true,
-      maximumAge: 500,       // Acceptă poziții de până la 500ms vechime
-      timeout: 5000,         // Timeout mai scurt pentru răspuns rapid
-    };
-
-    navigator.geolocation.getCurrentPosition(onPos, onErr, options);
-    watchIdRef.current = navigator.geolocation.watchPosition(onPos, onErr, options);
-    
-    return () => { 
-      if (watchIdRef.current) navigator.geolocation.clearWatch(watchIdRef.current); 
-    };
-  }, [navStarted]);
-
-  // Funcție pentru actualizarea marker-ului utilizatorului
+  // Actualizare marker utilizator (mutată într-o funcție separată)
   const updateUserMarker = useCallback((lat, lon) => {
     if (!mapReady || !mapRef.current) return;
     const map = mapRef.current;
@@ -361,6 +289,59 @@ export default function NavigatorApp() {
       userMarkerRef.current.setLngLat([lon, lat]);
     }
   }, [mapReady]);
+
+  // Geolocație ultra-preciză (CU DEPENDENȚE CORECTE)
+  useEffect(() => {
+    if (!('geolocation' in navigator)) return;
+    
+    const onPos = (pos) => {
+      const { latitude, longitude, heading, accuracy, speed } = pos.coords;
+      const now = Date.now();
+      if (now - lastUpdateTimeRef.current < 100) return;
+      lastUpdateTimeRef.current = now;
+      
+      const filtered = kalmanFilterRef.current.update(latitude, longitude);
+      setRawUserPos({ lat: latitude, lon: longitude, heading, accuracy, speed });
+      setFilteredUserPos({ lat: filtered.lat, lon: filtered.lon, heading, accuracy, speed });
+      setGpsAccuracy(accuracy);
+      
+      if (navStarted && routeGeomRef.current && filtered) {
+        const coords = routeGeomRef.current;
+        if (coords.length >= 2) {
+          const { point, distance } = findClosestPointOnRoute(filtered.lat, filtered.lon, coords);
+          if (distance < 30) {
+            snapPointRef.current = { lat: point[1], lon: point[0], distance };
+            updateUserMarker(point[1], point[0]);
+          } else {
+            snapPointRef.current = null;
+            updateUserMarker(filtered.lat, filtered.lon);
+          }
+        } else {
+          updateUserMarker(filtered.lat, filtered.lon);
+        }
+      } else if (filtered) {
+        updateUserMarker(filtered.lat, filtered.lon);
+      }
+    };
+
+    const onErr = (e) => {
+      console.warn('geoloc err', e.message);
+      setError('Nu s-a putut obține geolocația.');
+    };
+
+    const options = {
+      enableHighAccuracy: true,
+      maximumAge: 500,
+      timeout: 5000,
+    };
+
+    navigator.geolocation.getCurrentPosition(onPos, onErr, options);
+    watchIdRef.current = navigator.geolocation.watchPosition(onPos, onErr, options);
+    
+    return () => { 
+      if (watchIdRef.current) navigator.geolocation.clearWatch(watchIdRef.current); 
+    };
+  }, [navStarted, updateUserMarker]); // ← DEPENDENȚELE CORECTE
 
   // WakeLock
   useEffect(() => {
@@ -379,13 +360,12 @@ export default function NavigatorApp() {
     return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
   }, [navStarted]);
 
-  // Actualizare cameră și poziție
+  // Actualizare cameră
   useEffect(() => {
     if (!mapReady || !filteredUserPos) return;
     const map = mapRef.current;
     if (!map) return;
 
-    // Determină poziția de afișat (snapată sau filtrată)
     const displayPos = snapPointRef.current || filteredUserPos;
     if (!displayPos) return;
 
@@ -410,18 +390,16 @@ export default function NavigatorApp() {
     }
   }, [filteredUserPos, mapReady, following, route, navStarted, compass]);
 
-  // Trunchiere traseu (ultra-preciză cu interpolare)
+  // Trunchiere traseu (interpolare precisă)
   useEffect(() => {
     if (!filteredUserPos || !routeGeomRef.current || !navStarted) return;
     const fullCoords = routeGeomRef.current;
     if (fullCoords.length < 2) return;
     
-    // Folosește poziția snapată sau filtrată
     const pos = snapPointRef.current || filteredUserPos;
     if (!pos) return;
     
     const { index, point } = findClosestPointOnRoute(pos.lat, pos.lon, fullCoords);
-    // Construiește traseul de la punctul apropiat până la final
     const newCoords = [point, ...fullCoords.slice(index + 1)];
     setRouteCoords(newCoords);
   }, [filteredUserPos, navStarted]);
@@ -485,7 +463,6 @@ export default function NavigatorApp() {
     offRouteSinceRef.current = null;
     const map = mapRef.current;
     if (map) {
-      // Trunchiem imediat traseul la poziția curentă
       if (routeGeomRef.current) {
         const pos = snapPointRef.current || { lat: rawUserPos.lat, lon: rawUserPos.lon };
         const { index, point } = findClosestPointOnRoute(pos.lat, pos.lon, routeGeomRef.current);
@@ -503,14 +480,13 @@ export default function NavigatorApp() {
     }
   }, [route, rawUserPos, compass]);
 
-  // Monitorizare abatere rută (mai sensibilă)
+  // Monitorizare abatere rută și sosire
   useEffect(() => {
     if (!route || !filteredUserPos || !navStarted) return;
     
     const pos = snapPointRef.current || filteredUserPos;
     if (!pos) return;
 
-    // Verificare pași
     const steps = route.steps || [];
     let nextIdx = currentStep;
     for (let i = currentStep; i < steps.length; i++) {
@@ -521,15 +497,14 @@ export default function NavigatorApp() {
     }
     if (nextIdx !== currentStep) setCurrentStep(nextIdx);
 
-    // Verificare abatere
     const coords = route.geometry?.coordinates || [];
     const distOff = distToRouteMeters(pos.lat, pos.lon, coords);
     const now = Date.now();
     
-    if (distOff > 35) { // Prag mai sensibil (35m)
+    if (distOff > 35) {
       if (offRouteSinceRef.current == null) offRouteSinceRef.current = now;
       const elapsed = now - offRouteSinceRef.current;
-      const canReroute = now - lastReroutedAtRef.current > 6000; // Mai rapid (6s)
+      const canReroute = now - lastReroutedAtRef.current > 6000;
       if (elapsed > 2000 && canReroute && destination && !rerouting) {
         lastReroutedAtRef.current = now;
         offRouteSinceRef.current = null;
@@ -539,7 +514,6 @@ export default function NavigatorApp() {
             setRoute(r); 
             setCurrentStep(0); 
             drawRoute(r.geometry);
-            // Actualizează snap point-ul
             if (routeGeomRef.current) {
               const { point } = findClosestPointOnRoute(pos.lat, pos.lon, routeGeomRef.current);
               snapPointRef.current = { lat: point[1], lon: point[0], distance: 0 };
@@ -552,7 +526,6 @@ export default function NavigatorApp() {
       offRouteSinceRef.current = null;
     }
     
-    // Sosire
     if (destination) {
       const dArr = haversine(pos.lat, pos.lon, destination.lat, destination.lon);
       if (dArr < 20) {
@@ -584,14 +557,12 @@ export default function NavigatorApp() {
         />
       )}
 
-      {/* Indicator precizie GPS */}
       {gpsAccuracy && navStarted && (
         <div className="absolute top-16 left-3 z-40 bg-black/40 backdrop-blur-sm text-white text-[10px] px-2 py-0.5 rounded-full">
           GPS: {gpsAccuracy < 5 ? '🟢' : gpsAccuracy < 15 ? '🟡' : '🔴'} ±{Math.round(gpsAccuracy)}m
         </div>
       )}
 
-      {/* Ceas digital */}
       <div className="absolute top-3 right-3 z-40 bg-white/30 backdrop-blur-sm border border-white/40 rounded-full px-4 py-2 shadow-md min-w-[70px] text-center">
         <span className="text-black font-mono text-xl font-bold">{formattedTime}</span>
       </div>
