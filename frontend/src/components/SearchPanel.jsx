@@ -1,54 +1,322 @@
-const handleBuildingClick = async (b) => {
-  if (!selectedStreet) return;
-  let lat, lon;
-  const streetName = selectedStreet.name;
-  const city = selectedStreet.parent_name || 'Florești';
-  const addressKey = `${streetName}|${b}|${city}`;
+import React, { useState, useEffect, useRef } from 'react';
+import { Search, X, MapPin, Building2, ChevronRight, ArrowLeft, RefreshCw } from 'lucide-react';
+import { searchStreets, geocodeBuilding, saveSearchLocal, getSearchHistoryLocal, deleteSearchLocal } from '../lib/api';
 
-  if (streetName === "Strada 9 Mai" && MANUAL_COORDS[b]) {
-    lat = MANUAL_COORDS[b].lat;
-    lon = MANUAL_COORDS[b].lon;
-  } else {
-    const cached = getGeocodeCache(addressKey);
-    if (cached) {
-      lat = cached.lat;
-      lon = cached.lon;
-    } else {
+const MANUAL_COORDS = {
+  "21": { lat: 47.90479, lon: 28.29035 },
+  "25": { lat: 47.90479, lon: 28.29035 },
+  "67": { lat: 47.90616, lon: 28.28910 },
+};
+
+const GEOCODE_CACHE_KEY = 'geocode_cache';
+
+function saveGeocodeCache(addressKey, lat, lon) {
+  try {
+    const cache = JSON.parse(localStorage.getItem(GEOCODE_CACHE_KEY) || '{}');
+    cache[addressKey] = { lat, lon, timestamp: Date.now() };
+    localStorage.setItem(GEOCODE_CACHE_KEY, JSON.stringify(cache));
+  } catch (e) {}
+}
+
+function getGeocodeCache(addressKey) {
+  try {
+    const cache = JSON.parse(localStorage.getItem(GEOCODE_CACHE_KEY) || '{}');
+    const entry = cache[addressKey];
+    if (entry) {
+      const maxAge = 30 * 24 * 60 * 60 * 1000;
+      if (Date.now() - entry.timestamp < maxAge) {
+        return entry;
+      }
+    }
+    return null;
+  } catch (e) {
+    return null;
+  }
+}
+
+export default function SearchPanel({ onSelectDestination, userPos }) {
+  const [q, setQ] = useState('');
+  const [open, setOpen] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [loadingHistory, setLoadingHistory] = useState(false);
+  const [results, setResults] = useState([]);
+  const [selectedStreet, setSelectedStreet] = useState(null);
+  const [error, setError] = useState(null);
+  const [searchHistory, setSearchHistory] = useState([]);
+  const [historyError, setHistoryError] = useState(null);
+  const debounceRef = useRef(null);
+  const abortRef = useRef(null);
+
+  useEffect(() => {
+    loadHistory();
+  }, []);
+
+  const loadHistory = async () => {
+    setLoadingHistory(true);
+    setHistoryError(null);
+    try {
+      const history = await getSearchHistoryLocal(10);
+      setSearchHistory(history || []);
+    } catch (err) {
+      console.warn('Failed to load history:', err);
+      setHistoryError('Nu s-a putut încărca istoricul');
+    } finally {
+      setLoadingHistory(false);
+    }
+  };
+
+  useEffect(() => {
+    const query = q.trim();
+    if (query.length < 2 || selectedStreet) {
+      setResults([]);
+      setError(null);
+      setLoading(false);
+      return;
+    }
+
+    if (abortRef.current) abortRef.current.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+
+    setLoading(true);
+    setError(null);
+
+    debounceRef.current = setTimeout(async () => {
       try {
-        const geo = await geocodeBuilding(streetName, b, city);
-        if (geo.lat && geo.lon) {
-          lat = geo.lat;
-          lon = geo.lon;
-          saveGeocodeCache(addressKey, lat, lon);
+        const data = await searchStreets(query, 'Florești');
+        if (controller.signal.aborted) return;
+        let items = (data.results || []).filter(it => it.type === 'street');
+        items = items.map(it => it.name === "str. 9 Mai" ? { ...it, name: "Strada 9 Mai" } : it);
+        setResults(items);
+        if (items.length === 0) {
+          setError('Ничего не найдено');
         } else {
+          setError(null);
+          await saveSearchLocal(query);
+          loadHistory();
+        }
+      } catch (e) {
+        if (!controller.signal.aborted) {
+          setError('Ошибка поиска. Попробуйте позже.');
+          console.warn(e);
+        }
+      } finally {
+        if (!controller.signal.aborted) setLoading(false);
+      }
+    }, 300);
+
+    return () => {
+      clearTimeout(debounceRef.current);
+      controller.abort();
+    };
+  }, [q, selectedStreet]);
+
+  const handleStreetClick = (street) => {
+    if (street.name === "str. 9 Mai") {
+      street = { ...street, name: "Strada 9 Mai" };
+    }
+    setSelectedStreet(street);
+  };
+
+  const handleBuildingClick = async (b) => {
+    if (!selectedStreet) return;
+    let lat, lon;
+    const streetName = selectedStreet.name;
+    const city = selectedStreet.parent_name || 'Florești';
+    const addressKey = `${streetName}|${b}|${city}`;
+
+    if (streetName === "Strada 9 Mai" && MANUAL_COORDS[b]) {
+      lat = MANUAL_COORDS[b].lat;
+      lon = MANUAL_COORDS[b].lon;
+    } else {
+      const cached = getGeocodeCache(addressKey);
+      if (cached) {
+        lat = cached.lat;
+        lon = cached.lon;
+      } else {
+        try {
+          const geo = await geocodeBuilding(streetName, b, city);
+          if (geo.lat && geo.lon) {
+            lat = geo.lat;
+            lon = geo.lon;
+            saveGeocodeCache(addressKey, lat, lon);
+          } else {
+            const c = selectedStreet.centroid || { lat: 47.0124, lon: 28.8474 };
+            lat = c.lat;
+            lon = c.lon;
+          }
+        } catch (e) {
+          console.warn('Geocoding error', e);
           const c = selectedStreet.centroid || { lat: 47.0124, lon: 28.8474 };
           lat = c.lat;
           lon = c.lon;
         }
-      } catch (e) {
-        console.warn('Geocoding error', e);
-        const c = selectedStreet.centroid || { lat: 47.0124, lon: 28.8474 };
-        lat = c.lat;
-        lon = c.lon;
       }
     }
-  }
 
-  const fullAddress = `${streetName}, ${b}, ${city}`;
-  const dest = {
-    lat, lon,
-    label: fullAddress,
-    street: streetName,
-    building: b,
-    city: city,
+    const fullAddress = `${streetName}, ${b}, ${city}`;
+    const dest = {
+      lat, lon,
+      label: fullAddress,
+      street: streetName,
+      building: b,
+      city: city,
+    };
+
+    // Setează bara de căutare cu adresa completă
+    setQ(fullAddress);
+    // Resetează selecția străzii și rezultatele
+    setSelectedStreet(null);
+    setResults([]);
+    setError(null);
+
+    onSelectDestination(dest, false);
   };
 
-  // Setează bara de căutare cu adresa completă
-  setQ(fullAddress);
-  // Resetează selecția străzii pentru a ascunde lista de numere
-  setSelectedStreet(null);
-  setResults([]);
-  setError(null);
+  const handleDeleteHistoryItem = async (id) => {
+    await deleteSearchLocal(id);
+    loadHistory();
+  };
 
-  onSelectDestination(dest, false);
-};
+  const resetAll = () => {
+    if (abortRef.current) abortRef.current.abort();
+    setQ('');
+    setSelectedStreet(null);
+    setResults([]);
+    setError(null);
+  };
+
+  const handleBack = () => {
+    setSelectedStreet(null);
+    setResults([]);
+    setError(null);
+    setQ('');
+  };
+
+  return (
+    <div className="absolute top-3 left-3 right-3 z-30">
+      {/* Badge diagnostic */}
+      <div className="absolute -top-7 right-0 flex items-center gap-2">
+        <button 
+          onClick={loadHistory} 
+          className="bg-blue-500 hover:bg-blue-600 text-white text-xs px-2 py-0.5 rounded-full flex items-center gap-1"
+        >
+          <RefreshCw size={12} className={loadingHistory ? 'animate-spin' : ''} />
+          {loadingHistory ? '...' : `📋 ${searchHistory.length}`}
+        </button>
+      </div>
+
+      <div className="bg-white/30 backdrop-blur-sm border border-white/40 rounded-xl flex items-center px-3 py-2 gap-2">
+        {selectedStreet ? (
+          <button onClick={handleBack} className="text-black/70"><ArrowLeft size={20} /></button>
+        ) : (
+          <Search size={20} className="text-black/70" />
+        )}
+        <input
+          type="text"
+          value={q}
+          onChange={(e) => { 
+            setQ(e.target.value); 
+            setOpen(true);
+            if (e.target.value.trim() === '' && selectedStreet) {
+              setSelectedStreet(null);
+              setResults([]);
+              setError(null);
+            }
+          }}
+          onFocus={() => setOpen(true)}
+          placeholder="Поиск улицы..."
+          className="flex-1 outline-none text-black placeholder:text-black/50 bg-transparent"
+        />
+        {q && <button onClick={resetAll} className="text-black/50"><X size={18} /></button>}
+      </div>
+
+      {(open || selectedStreet) && (
+        <div className="mt-2 bg-white/30 backdrop-blur-sm border border-white/40 rounded-xl max-h-[60vh] overflow-auto">
+          {!selectedStreet && (
+            <>
+              {q.trim().length >= 2 && (
+                <>
+                  {loading && <div className="px-4 py-3 text-black/70">Поиск...</div>}
+                  {error && <div className="px-4 py-3 text-red-700">{error}</div>}
+                  {!loading && results.length === 0 && q.length >= 2 && !error && <div className="px-4 py-3 text-black/70">Ничего не найдено</div>}
+                  {results.map(s => (
+                    <button key={s.id} onClick={() => handleStreetClick(s)} className="w-full text-left px-3 py-2.5 flex gap-3 hover:bg-white/20 border-b border-white/30">
+                      <div className="w-9 h-9 rounded-full bg-amber-500/70 flex items-center justify-center text-white"><MapPin size={18} /></div>
+                      <div className="flex-1">
+                        <div className="text-black font-medium">{s.name}</div>
+                        <div className="text-black/60 text-xs">{s.parent_name} · {s.count} домов</div>
+                      </div>
+                      <ChevronRight size={16} className="text-black/40" />
+                    </button>
+                  ))}
+                </>
+              )}
+
+              {q.trim().length < 2 && (
+                <>
+                  {loadingHistory && (
+                    <div className="px-4 py-3 text-black/70 text-sm">Se încarcă istoricul...</div>
+                  )}
+                  
+                  {historyError && (
+                    <div className="px-4 py-3 text-red-700 text-sm">{historyError}</div>
+                  )}
+                  
+                  {!loadingHistory && !historyError && searchHistory.length > 0 && (
+                    <div>
+                      <div className="px-3 py-2 text-[12px] font-semibold text-black/70 border-b border-white/30">📜 Căutări recente</div>
+                      {searchHistory.map(item => (
+                        <div key={item.id || item.query} className="flex items-center justify-between px-3 py-2 hover:bg-white/20 border-b border-white/30">
+                          <button
+                            onClick={() => {
+                              setQ(item.query);
+                              setOpen(true);
+                            }}
+                            className="flex-1 text-left text-black"
+                          >
+                            {item.query}
+                          </button>
+                          <button
+                            onClick={() => handleDeleteHistoryItem(item.id)}
+                            className="text-black/40 hover:text-red-500"
+                          >
+                            <X size={14} />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  
+                  {!loadingHistory && !historyError && searchHistory.length === 0 && (
+                    <div className="px-4 py-3 text-black/50 text-sm text-center">
+                      Nu există căutări salvate. Caută o stradă pentru a începe.
+                    </div>
+                  )}
+                </>
+              )}
+            </>
+          )}
+
+          {selectedStreet && (
+            <div className="p-3">
+              <div className="text-black font-bold mb-2">Выберите номер дома ({selectedStreet.buildings?.length || 0}):</div>
+              <div className="grid grid-cols-4 sm:grid-cols-6 gap-2">
+                {(selectedStreet.buildings || []).map(b => (
+                  <button
+                    key={b}
+                    onClick={() => handleBuildingClick(b)}
+                    className="px-2 py-3 rounded-xl bg-white/40 border border-white/50 text-black font-bold hover:bg-white/60 flex justify-center gap-1"
+                  >
+                    <Building2 size={13} className="text-black/60" /> {b}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
