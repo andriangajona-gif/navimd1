@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Search, X, MapPin, Building2, ChevronRight, ArrowLeft, RefreshCw } from 'lucide-react';
-import { searchStreets, geocodeBuilding, saveSearch, getSearchHistory, deleteSearch } from '../lib/api';
+import { searchStreets, geocodeBuilding, saveSearchLocal, getSearchHistoryLocal, deleteSearchLocal } from '../lib/api';
 
 const MANUAL_COORDS = {
   "21": { lat: 47.90479, lon: 28.29035 },
@@ -55,7 +55,7 @@ export default function SearchPanel({ onSelectDestination, userPos }) {
     setLoadingHistory(true);
     setHistoryError(null);
     try {
-      const history = await getSearchHistory(10);
+      const history = await getSearchHistoryLocal(10);
       setSearchHistory(history || []);
     } catch (err) {
       console.warn('Failed to load history:', err);
@@ -93,9 +93,7 @@ export default function SearchPanel({ onSelectDestination, userPos }) {
           setError('Ничего не найдено');
         } else {
           setError(null);
-          // Salvează căutarea doar dacă există rezultate
-          await saveSearch(query);
-          // Reîncarcă istoricul pentru a-l actualiza
+          await saveSearchLocal(query);
           loadHistory();
         }
       } catch (e) {
@@ -170,7 +168,7 @@ export default function SearchPanel({ onSelectDestination, userPos }) {
   };
 
   const handleDeleteHistoryItem = async (id) => {
-    await deleteSearch(id);
+    await deleteSearchLocal(id);
     loadHistory();
   };
 
@@ -187,13 +185,9 @@ export default function SearchPanel({ onSelectDestination, userPos }) {
     setError(null);
   };
 
-  // Afișează istoricul dacă nu este selectată nicio stradă și bara este goală/sau o literă
-  const showHistory = !selectedStreet && q.trim().length < 2 && searchHistory.length > 0;
-  const showHistoryEmpty = !selectedStreet && q.trim().length < 2 && searchHistory.length === 0 && !loadingHistory;
-
   return (
     <div className="absolute top-3 left-3 right-3 z-30">
-      {/* Badge diagnostic – arată numărul de elemente din istoric */}
+      {/* Badge diagnostic – buton de reîncărcare istoric */}
       <div className="absolute -top-7 right-0 flex items-center gap-2">
         <button 
           onClick={loadHistory} 
@@ -252,7 +246,6 @@ export default function SearchPanel({ onSelectDestination, userPos }) {
                 </>
               )}
 
-              {/* Afișează istoricul doar dacă bara are mai puțin de 2 caractere */}
               {q.trim().length < 2 && (
                 <>
                   {loadingHistory && (
@@ -267,7 +260,7 @@ export default function SearchPanel({ onSelectDestination, userPos }) {
                     <div>
                       <div className="px-3 py-2 text-[12px] font-semibold text-black/70 border-b border-white/30">📜 Căutări recente</div>
                       {searchHistory.map(item => (
-                        <div key={item.id} className="flex items-center justify-between px-3 py-2 hover:bg-white/20 border-b border-white/30">
+                        <div key={item.id || item.query} className="flex items-center justify-between px-3 py-2 hover:bg-white/20 border-b border-white/30">
                           <button
                             onClick={() => {
                               setQ(item.query);
