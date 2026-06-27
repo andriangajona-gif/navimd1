@@ -8,6 +8,9 @@ const MANUAL_COORDS = {
   "67": { lat: 47.90616, lon: 28.28910 },
 };
 
+// Orașul FORȚAT pentru toate căutările și geocodările
+const DEFAULT_CITY = 'Florești';
+
 export default function SearchPanel({ onSelectDestination, userPos }) {
   const [q, setQ] = useState('');
   const [open, setOpen] = useState(false);
@@ -47,13 +50,18 @@ export default function SearchPanel({ onSelectDestination, userPos }) {
 
     debounceRef.current = setTimeout(async () => {
       try {
-        const data = await searchStreets(query, 'Florești');
+        // FORȚEAZĂ căutarea în Florești
+        const data = await searchStreets(query, DEFAULT_CITY);
         if (controller.signal.aborted) return;
+        
         let items = (data.results || []).filter(it => it.type === 'street');
+        // FILTREAZĂ doar străzile din Florești (siguranță suplimentară)
+        items = items.filter(it => (it.parent_name || '').toLowerCase() === DEFAULT_CITY.toLowerCase());
         items = items.map(it => it.name === "str. 9 Mai" ? { ...it, name: "Strada 9 Mai" } : it);
+        
         setResults(items);
         if (items.length === 0) {
-          setError('Ничего не найдено');
+          setError(`Nu s-a găsit nicio stradă în ${DEFAULT_CITY}`);
         } else {
           setError(null);
           await saveSearch(query);
@@ -79,25 +87,24 @@ export default function SearchPanel({ onSelectDestination, userPos }) {
     if (street.name === "str. 9 Mai") {
       street = { ...street, name: "Strada 9 Mai" };
     }
-    setSelectedStreet(street);
+    // FORȚEAZĂ parent_name = Florești
+    setSelectedStreet({ ...street, parent_name: DEFAULT_CITY });
   };
 
   const handleBuildingClick = async (b) => {
     if (!selectedStreet) return;
     let lat, lon;
+    const streetName = selectedStreet.name;
+    // FORȚEAZĂ orașul Florești pentru geocodare
+    const city = DEFAULT_CITY;
 
-    if (selectedStreet.name === "Strada 9 Mai" && MANUAL_COORDS[b]) {
+    if (streetName === "Strada 9 Mai" && MANUAL_COORDS[b]) {
       lat = MANUAL_COORDS[b].lat;
       lon = MANUAL_COORDS[b].lon;
-    } 
-    else if (selectedStreet.name === "Strada 9 Mai") {
-      const c = selectedStreet.centroid || { lat: 47.90500, lon: 28.28970 };
-      lat = c.lat;
-      lon = c.lon;
-    } 
-    else {
+    } else {
       try {
-        const geo = await geocodeBuilding(selectedStreet.name, b, selectedStreet.parent_name);
+        // Geocodează cu orașul FORȚAT Florești
+        const geo = await geocodeBuilding(streetName, b, city);
         if (geo.lat && geo.lon) {
           lat = geo.lat;
           lon = geo.lon;
@@ -116,10 +123,10 @@ export default function SearchPanel({ onSelectDestination, userPos }) {
 
     const dest = {
       lat, lon,
-      label: `${selectedStreet.name}, ${b}, ${selectedStreet.parent_name}`,
-      street: selectedStreet.name,
+      label: `${streetName}, ${b}, ${city}`,
+      street: streetName,
       building: b,
-      city: selectedStreet.parent_name,
+      city: city,
     };
 
     onSelectDestination(dest, false);
@@ -156,10 +163,10 @@ export default function SearchPanel({ onSelectDestination, userPos }) {
         )}
         <input
           type="text"
-          value={selectedStreet ? `${selectedStreet.name}, ${selectedStreet.parent_name}` : q}
+          value={selectedStreet ? `${selectedStreet.name}, ${DEFAULT_CITY}` : q}
           onChange={(e) => { setQ(e.target.value); setOpen(true); }}
           onFocus={() => setOpen(true)}
-          placeholder={selectedStreet ? 'Выберите номер дома...' : 'Поиск улицы...'}
+          placeholder={selectedStreet ? 'Выберите номер дома...' : `Поиск улицы в ${DEFAULT_CITY}...`}
           readOnly={!!selectedStreet}
           className="flex-1 outline-none text-black placeholder:text-black/50 bg-transparent"
         />
@@ -180,7 +187,7 @@ export default function SearchPanel({ onSelectDestination, userPos }) {
                       <div className="w-9 h-9 rounded-full bg-amber-500/70 flex items-center justify-center text-white"><MapPin size={18} /></div>
                       <div className="flex-1">
                         <div className="text-black font-medium">{s.name}</div>
-                        <div className="text-black/60 text-xs">{s.parent_name} · {s.count} домов</div>
+                        <div className="text-black/60 text-xs">{DEFAULT_CITY} · {s.count} домов</div>
                       </div>
                       <ChevronRight size={16} className="text-black/40" />
                     </button>
