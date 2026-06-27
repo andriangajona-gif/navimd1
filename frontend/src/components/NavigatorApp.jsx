@@ -175,6 +175,7 @@ export default function NavigatorApp() {
   const kalmanFilterRef = useRef(new KalmanFilter2D(0.3, 1.5));
   const snapPointRef = useRef(null);
   const lastUpdateTimeRef = useRef(0);
+  const firstPositionRef = useRef(true); // Flag pentru prima poziție GPS
 
   const [mapReady, setMapReady] = useState(false);
   const [mapInstance, setMapInstance] = useState(null);
@@ -191,6 +192,7 @@ export default function NavigatorApp() {
   const [navStarted, setNavStarted] = useState(false);
   const [rerouting, setRerouting] = useState(false);
   const [gpsAccuracy, setGpsAccuracy] = useState(null);
+  const [gpsStatus, setGpsStatus] = useState('Căutare GPS...');
   const lastReroutedAtRef = useRef(0);
   const offRouteSinceRef = useRef(null);
 
@@ -202,7 +204,6 @@ export default function NavigatorApp() {
     }, 1000);
     return () => clearInterval(interval);
   }, []);
-
   const formattedTime = currentTime.toLocaleTimeString('ro-RO', { hour: '2-digit', minute: '2-digit', hour12: false });
 
   // Inițializare hartă
@@ -290,9 +291,12 @@ export default function NavigatorApp() {
     }
   }, [mapReady]);
 
-  // Geolocație ultra-preciză (CU DEPENDENȚE CORECTE)
+  // Geolocație ultra-preciză + centrare automată la prima poziție
   useEffect(() => {
-    if (!('geolocation' in navigator)) return;
+    if (!('geolocation' in navigator)) {
+      setGpsStatus('GPS indisponibil');
+      return;
+    }
     
     const onPos = (pos) => {
       const { latitude, longitude, heading, accuracy, speed } = pos.coords;
@@ -304,6 +308,19 @@ export default function NavigatorApp() {
       setRawUserPos({ lat: latitude, lon: longitude, heading, accuracy, speed });
       setFilteredUserPos({ lat: filtered.lat, lon: filtered.lon, heading, accuracy, speed });
       setGpsAccuracy(accuracy);
+      setGpsStatus(accuracy < 10 ? 'GPS precis ✅' : 'GPS aproximativ ⚠️');
+      
+      // ===== CENTRARE AUTOMATĂ LA PRIMA POZIȚIE =====
+      if (firstPositionRef.current && mapRef.current) {
+        firstPositionRef.current = false;
+        const map = mapRef.current;
+        map.flyTo({
+          center: [filtered.lon, filtered.lat],
+          zoom: 17,
+          duration: 1200,
+        });
+        setFollowing(true);
+      }
       
       if (navStarted && routeGeomRef.current && filtered) {
         const coords = routeGeomRef.current;
@@ -327,6 +344,7 @@ export default function NavigatorApp() {
     const onErr = (e) => {
       console.warn('geoloc err', e.message);
       setError('Nu s-a putut obține geolocația.');
+      setGpsStatus('Eroare GPS');
     };
 
     const options = {
@@ -341,7 +359,7 @@ export default function NavigatorApp() {
     return () => { 
       if (watchIdRef.current) navigator.geolocation.clearWatch(watchIdRef.current); 
     };
-  }, [navStarted, updateUserMarker]); // ← DEPENDENȚELE CORECTE
+  }, [navStarted, updateUserMarker]);
 
   // WakeLock
   useEffect(() => {
@@ -557,12 +575,19 @@ export default function NavigatorApp() {
         />
       )}
 
-      {gpsAccuracy && navStarted && (
-        <div className="absolute top-16 left-3 z-40 bg-black/40 backdrop-blur-sm text-white text-[10px] px-2 py-0.5 rounded-full">
-          GPS: {gpsAccuracy < 5 ? '🟢' : gpsAccuracy < 15 ? '🟡' : '🔴'} ±{Math.round(gpsAccuracy)}m
+      {/* Indicator stări GPS + centrare automată */}
+      <div className="absolute top-16 left-3 z-40 flex flex-col items-start gap-1">
+        <div className="bg-black/50 backdrop-blur-sm text-white text-[10px] px-2 py-0.5 rounded-full">
+          {gpsStatus}
         </div>
-      )}
+        {gpsAccuracy && navStarted && (
+          <div className="bg-black/40 backdrop-blur-sm text-white text-[10px] px-2 py-0.5 rounded-full">
+            GPS: {gpsAccuracy < 5 ? '🟢' : gpsAccuracy < 15 ? '🟡' : '🔴'} ±{Math.round(gpsAccuracy)}m
+          </div>
+        )}
+      </div>
 
+      {/* Ceas digital */}
       <div className="absolute top-3 right-3 z-40 bg-white/30 backdrop-blur-sm border border-white/40 rounded-full px-4 py-2 shadow-md min-w-[70px] text-center">
         <span className="text-black font-mono text-xl font-bold">{formattedTime}</span>
       </div>
