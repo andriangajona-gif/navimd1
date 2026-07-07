@@ -1,9 +1,9 @@
 /**
  * Search Cache Utility
- * Caches search queries in localStorage and provides autocomplete by first letter
+ * Caches full addresses (street + building number) in localStorage with autocomplete by first letter
  */
 
-const CACHE_KEY = 'search_cache_streets';
+const CACHE_KEY = 'search_cache_addresses';
 const MAX_CACHE_SIZE = 100;
 
 /**
@@ -18,7 +18,7 @@ export function initCache() {
 }
 
 /**
- * Get all cached searches
+ * Get all cached addresses
  */
 export function getCache() {
   try {
@@ -31,21 +31,29 @@ export function getCache() {
 }
 
 /**
- * Add a search query to cache (avoid duplicates)
+ * Add a full address to cache (street + building number)
+ * Example: "Strada 1 Mai, 15, Florești"
  */
-export function addToCache(query) {
-  if (!query || query.trim().length === 0) return;
+export function addAddressToCache(streetName, buildingNumber, city) {
+  const fullAddress = `${streetName}, ${buildingNumber}, ${city}`;
+  
+  if (!fullAddress || fullAddress.trim().length < 5) return;
 
   try {
     let cache = getCache();
-    const normalizedQuery = query.trim();
+    const normalizedAddress = fullAddress.trim();
 
     // Remove if already exists (we'll add it to the top)
-    cache = cache.filter(item => item.query.toLowerCase() !== normalizedQuery.toLowerCase());
+    cache = cache.filter(item => 
+      item.address.toLowerCase() !== normalizedAddress.toLowerCase()
+    );
 
     // Add to the beginning (most recent first)
     cache.unshift({
-      query: normalizedQuery,
+      address: normalizedAddress,
+      street: streetName,
+      building: buildingNumber,
+      city: city,
       timestamp: Date.now(),
     });
 
@@ -54,13 +62,13 @@ export function addToCache(query) {
 
     localStorage.setItem(CACHE_KEY, JSON.stringify(cache));
   } catch (err) {
-    console.warn('Failed to add to cache:', err);
+    console.warn('Failed to add address to cache:', err);
   }
 }
 
 /**
- * Get cached searches filtered by first letter
- * If letter is empty, return all recent searches
+ * Get cached addresses filtered by first letter
+ * If letter is empty, return all recent addresses
  */
 export function getAutocompleteByFirstLetter(letter) {
   const cache = getCache();
@@ -71,7 +79,7 @@ export function getAutocompleteByFirstLetter(letter) {
 
   const firstLetter = letter.charAt(0).toLowerCase();
   return cache.filter(item =>
-    item.query.charAt(0).toLowerCase() === firstLetter
+    item.address.charAt(0).toLowerCase() === firstLetter
   );
 }
 
@@ -87,12 +95,12 @@ export function clearCache() {
 }
 
 /**
- * Remove a specific query from cache
+ * Remove a specific address from cache
  */
-export function removeFromCache(query) {
+export function removeFromCache(address) {
   try {
     let cache = getCache();
-    cache = cache.filter(item => item.query.toLowerCase() !== query.toLowerCase());
+    cache = cache.filter(item => item.address.toLowerCase() !== address.toLowerCase());
     localStorage.setItem(CACHE_KEY, JSON.stringify(cache));
   } catch (err) {
     console.warn('Failed to remove from cache:', err);
