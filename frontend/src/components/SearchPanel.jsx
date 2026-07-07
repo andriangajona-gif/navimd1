@@ -3,7 +3,7 @@ import { Search, X, MapPin, Building2, ChevronRight, ArrowLeft } from 'lucide-re
 import { searchStreets, geocodeBuilding, saveSearch, getSearchHistory, deleteSearch } from '../lib/api';
 import { 
   getAutocompleteByFirstLetter, 
-  addToCache, 
+  addAddressToCache, 
   removeFromCache 
 } from '../lib/searchCache';
 
@@ -90,9 +90,8 @@ export default function SearchPanel({ onSelectDestination, userPos }) {
           setError('Ничего не найдено');
         } else {
           setError(null);
-          // Add to cache on successful search
+          // Add to server history
           await saveSearch(query);
-          addToCache(query);
           loadHistory();
         }
       } catch (e) {
@@ -119,10 +118,22 @@ export default function SearchPanel({ onSelectDestination, userPos }) {
     setCachedSuggestions([]); // Clear suggestions when street is selected
   };
 
-  const handleCachedSuggestionClick = (query) => {
-    setQ(query);
-    setCachedSuggestions([]);
-    setOpen(true);
+  const handleCachedSuggestionClick = (cachedAddress) => {
+    // Parse the cached address and navigate directly
+    const { street, building, city } = cachedAddress;
+    
+    // Find the street from results or use cached info
+    const dest = {
+      lat: 47.0124, // Default fallback
+      lon: 28.8474,
+      label: cachedAddress.address,
+      street: street,
+      building: building,
+      city: city,
+    };
+    
+    onSelectDestination(dest, false);
+    resetAfterSelect();
   };
 
   const handleBuildingClick = async (b) => {
@@ -162,6 +173,9 @@ export default function SearchPanel({ onSelectDestination, userPos }) {
       city: city,
     };
 
+    // Add full address to cache
+    addAddressToCache(streetName, b, city);
+
     onSelectDestination(dest, false);
     resetAfterSelect();
   };
@@ -171,9 +185,9 @@ export default function SearchPanel({ onSelectDestination, userPos }) {
     loadHistory();
   };
 
-  const handleDeleteCacheItem = (query) => {
-    removeFromCache(query);
-    setCachedSuggestions(cachedSuggestions.filter(item => item.query !== query));
+  const handleDeleteCacheItem = (address) => {
+    removeFromCache(address);
+    setCachedSuggestions(cachedSuggestions.filter(item => item.address !== address));
   };
 
   const resetAfterSelect = () => {
@@ -220,20 +234,23 @@ export default function SearchPanel({ onSelectDestination, userPos }) {
         <div className="mt-2 bg-white/30 backdrop-blur-sm border border-white/40 rounded-xl max-h-[60vh] overflow-auto">
           {!selectedStreet && (
             <>
-              {/* === CACHED SUGGESTIONS (FIRST LETTER) === */}
+              {/* === CACHED SUGGESTIONS (FULL ADDRESS BY FIRST LETTER) === */}
               {cachedSuggestions.length > 0 && q.trim().length === 1 && (
                 <div>
-                  <div className="px-3 py-2 text-[12px] font-semibold text-black/70 border-b border-white/30">⚡ Căutări din cache - prima literă "{q.toUpperCase()}"</div>
+                  <div className="px-3 py-2 text-[12px] font-semibold text-black/70 border-b border-white/30">⚡ Adrese recent vizitate - prima literă "{q.toUpperCase()}"</div>
                   {cachedSuggestions.map((item, idx) => (
                     <div key={`cache-${idx}`} className="flex items-center justify-between px-3 py-2 hover:bg-white/20 border-b border-white/30">
                       <button
-                        onClick={() => handleCachedSuggestionClick(item.query)}
+                        onClick={() => handleCachedSuggestionClick(item)}
                         className="flex-1 text-left text-black text-sm"
                       >
-                        {item.query}
+                        <div className="font-medium">{item.address}</div>
+                        <div className="text-[10px] text-black/50">
+                          {new Date(item.timestamp).toLocaleDateString('ro-RO')}
+                        </div>
                       </button>
                       <button
-                        onClick={() => handleDeleteCacheItem(item.query)}
+                        onClick={() => handleDeleteCacheItem(item.address)}
                         className="text-black/40 hover:text-red-500"
                       >
                         <X size={14} />
