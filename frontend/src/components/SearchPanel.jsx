@@ -1,6 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Search, X, MapPin, Building2, ChevronRight, ArrowLeft } from 'lucide-react';
 import { searchStreets, geocodeBuilding, saveSearch, getSearchHistory, deleteSearch } from '../lib/api';
+import { 
+  getCache,
+  addAddressToCache, 
+  removeFromCache 
+} from '../lib/searchCache';
 
 const MANUAL_COORDS = {
   "21": { lat: 47.90479, lon: 28.29035 },
@@ -8,7 +13,7 @@ const MANUAL_COORDS = {
   "67": { lat: 47.90616, lon: 28.28910 },
 };
 
-// Orașul prioritar
+// Orașului prioritar
 const PRIORITY_CITY = 'Florești';
 
 export default function SearchPanel({ onSelectDestination, userPos }) {
@@ -19,8 +24,11 @@ export default function SearchPanel({ onSelectDestination, userPos }) {
   const [selectedStreet, setSelectedStreet] = useState(null);
   const [error, setError] = useState(null);
   const [searchHistory, setSearchHistory] = useState([]);
+  const [cachedAddresses, setCachedAddresses] = useState([]);
+  const [showCacheOnFocus, setShowCacheOnFocus] = useState(false);
   const debounceRef = useRef(null);
   const abortRef = useRef(null);
+  const inputRef = useRef(null);
 
   useEffect(() => {
     loadHistory();
@@ -31,9 +39,37 @@ export default function SearchPanel({ onSelectDestination, userPos }) {
     setSearchHistory(history);
   };
 
+  // Load cached addresses on input focus
+  const handleInputFocus = () => {
+    setOpen(true);
+    if (q.trim().length === 0) {
+      const cached = getCache();
+      setCachedAddresses(cached);
+      setShowCacheOnFocus(true);
+    }
+  };
+
+  // Handle input change with cache autocomplete
+  const handleInputChange = (e) => {
+    const value = e.target.value;
+    setQ(value);
+    setOpen(true);
+
+    // If typing starts, hide cache and start searching
+    if (value.trim().length > 0) {
+      setShowCacheOnFocus(false);
+      setCachedAddresses([]);
+    } else {
+      // If cleared, show cache again
+      const cached = getCache();
+      setCachedAddresses(cached);
+      setShowCacheOnFocus(true);
+    }
+  };
+
   useEffect(() => {
     const query = q.trim();
-    if (query.length < 2 || selectedStreet) {
+    if (query.length < 2) {
       setResults([]);
       setError(null);
       setLoading(false);
@@ -67,6 +103,7 @@ export default function SearchPanel({ onSelectDestination, userPos }) {
           setError('Ничего не найдено');
         } else {
           setError(null);
+          // Add to server history
           await saveSearch(query);
           loadHistory();
         }
@@ -84,20 +121,52 @@ export default function SearchPanel({ onSelectDestination, userPos }) {
       clearTimeout(debounceRef.current);
       controller.abort();
     };
-  }, [q, selectedStreet]);
+  }, [q]);
 
   const handleStreetClick = (street) => {
     if (street.name === "str. 9 Mai") {
       street = { ...street, name: "Strada 9 Mai" };
     }
     setSelectedStreet(street);
+    setCachedAddresses([]); // Clear suggestions when street is selected
+    setShowCacheOnFocus(false);
+  };
+
+  const handleCachedAddressClick = async (cachedAddress) => {
+    // Extract coordinates for the cached address
+    let lat = cachedAddress.lat || 47.0124;
+    let lon = cachedAddress.lon || 28.8474;
+
+    // Try to geocode if coordinates not stored
+    if (!cachedAddress.lat || !cachedAddress.lon) {
+      try {
+        const geo = await geocodeBuilding(cachedAddress.street, cachedAddress.building, cachedAddress.city);
+        if (geo.lat && geo.lon) {
+          lat = geo.lat;
+          lon = geo.lon;
+        }
+      } catch (e) {
+        console.warn('Geocoding error for cached address:', e);
+      }
+    }
+
+    const dest = {
+      lat,
+      lon,
+      label: cachedAddress.address,
+      street: cachedAddress.street,
+      building: cachedAddress.building,
+      city: cachedAddress.city,
+    };
+
+    onSelectDestination(dest, false);
+    resetAfterSelect();
   };
 
   const handleBuildingClick = async (b) => {
     if (!selectedStreet) return;
     let lat, lon;
     const streetName = selectedStreet.name;
-    // FORȚEAZĂ orașul PRIORITY_CITY pentru geocodare
     const city = PRIORITY_CITY;
 
     if (streetName === "Strada 9 Mai" && MANUAL_COORDS[b]) {
@@ -123,12 +192,16 @@ export default function SearchPanel({ onSelectDestination, userPos }) {
     }
 
     const dest = {
-      lat, lon,
+      lat,
+      lon,
       label: `${streetName}, ${b}, ${city}`,
       street: streetName,
       building: b,
       city: city,
     };
+
+    // Add full address to cache with coordinates
+    addAddressToCache(streetName, b, city, lat, lon);
 
     onSelectDestination(dest, false);
     resetAfterSelect();
@@ -139,20 +212,29 @@ export default function SearchPanel({ onSelectDestination, userPos }) {
     loadHistory();
   };
 
+  const handleDeleteCacheItem = (address) => {
+    removeFromCache(address);
+    setCachedAddresses(cachedAddresses.filter(item => item.address !== address));
+  };
+
   const resetAfterSelect = () => {
     setQ('');
     setSelectedStreet(null);
     setResults([]);
     setError(null);
+    setCachedAddresses([]);
+    setShowCacheOnFocus(false);
   };
 
   const reset = () => {
     if (abortRef.current) abortRef.current.abort();
-    setQ(''); setResults([]); setSelectedStreet(null);
+    setQ('');
+    setResults([]);
+    setSelectedStreet(null);
     setError(null);
+    setCachedAddresses([]);
+    setShowCacheOnFocus(false);
   };
-
-  const showHistory = !selectedStreet && q.trim().length === 1 && searchHistory.length > 0;
 
   return (
     <div className="absolute top-3 left-3 right-3 z-30">
@@ -163,12 +245,13 @@ export default function SearchPanel({ onSelectDestination, userPos }) {
           <Search size={20} className="text-black/70" />
         )}
         <input
+          ref={inputRef}
           type="text"
           value={selectedStreet ? `${selectedStreet.name}, ${PRIORITY_CITY}` : q}
-          onChange={(e) => { setQ(e.target.value); setOpen(true); }}
-          onFocus={() => setOpen(true)}
+          onChange={handleInputChange}
+          onFocus={handleInputFocus}
           placeholder={selectedStreet ? 'Выберите номер дома...' : 'Поиск улицы...'}
-          readOnly={!!selectedStreet}
+          readOnly={false}
           className="flex-1 outline-none text-black placeholder:text-black/50 bg-transparent"
         />
         {(q || selectedStreet) && <button onClick={reset} className="text-black/50"><X size={18} /></button>}
@@ -178,6 +261,33 @@ export default function SearchPanel({ onSelectDestination, userPos }) {
         <div className="mt-2 bg-white/30 backdrop-blur-sm border border-white/40 rounded-xl max-h-[60vh] overflow-auto">
           {!selectedStreet && (
             <>
+              {/* === CACHED ADDRESSES (WHEN INPUT FOCUSED AND EMPTY) === */}
+              {showCacheOnFocus && cachedAddresses.length > 0 && q.trim().length === 0 && (
+                <div>
+                  <div className="px-3 py-2 text-[12px] font-semibold text-black/70 border-b border-white/30">📍 Adrese recent vizitate</div>
+                  {cachedAddresses.map((item, idx) => (
+                    <div key={`cache-${idx}`} className="flex items-center justify-between px-3 py-2 hover:bg-white/20 border-b border-white/30">
+                      <button
+                        onClick={() => handleCachedAddressClick(item)}
+                        className="flex-1 text-left"
+                      >
+                        <div className="font-medium text-black">{item.address}</div>
+                        <div className="text-[10px] text-black/50">
+                          {new Date(item.timestamp).toLocaleDateString('ro-RO')}
+                        </div>
+                      </button>
+                      <button
+                        onClick={() => handleDeleteCacheItem(item.address)}
+                        className="text-black/40 hover:text-red-500"
+                      >
+                        <X size={14} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* === API SEARCH RESULTS === */}
               {q.trim().length >= 2 && (
                 <>
                   {loading && <div className="px-4 py-3 text-black/70">Поиск...</div>}
@@ -210,7 +320,8 @@ export default function SearchPanel({ onSelectDestination, userPos }) {
                 </>
               )}
 
-              {showHistory && (
+              {/* === RECENT SEARCHES (WHEN INPUT HAS 1 CHAR AND NO CACHE) === */}
+              {q.trim().length === 1 && cachedAddresses.length === 0 && searchHistory.length > 0 && (
                 <div>
                   <div className="px-3 py-2 text-[12px] font-semibold text-black/70 border-b border-white/30">📜 Căutări recente</div>
                   {searchHistory.map(item => (
