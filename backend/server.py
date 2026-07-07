@@ -37,6 +37,8 @@ http_client: Optional[httpx.AsyncClient] = None
 async def _startup():
     global http_client
     http_client = httpx.AsyncClient(timeout=45.0, follow_redirects=True)
+    if client is None:
+        logger.info('MONGO_URL not set; MongoDB features (search history) are disabled')
 
 @app.on_event('shutdown')
 async def _shutdown():
@@ -58,6 +60,10 @@ class SavedSearch(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     query: str
     timestamp: datetime = Field(default_factory=datetime.utcnow)
+
+
+class SaveSearchRequest(BaseModel):
+    query: str
 
 
 @api_router.get('/')
@@ -111,9 +117,22 @@ async def get_buildings(
         for item in data:
             if item.get('type') == 'street' and item.get('name', '').lower() == street_name.lower():
                 buildings = item.get('buildings', [])
+
+                def building_key(x: str):
+                    # normalize building like "12/3" => number 12, fallback to lexical
+                    first = x.split('/')[0]
+                    try:
+                        num = int(first)
+                        # numeric group first so numeric values sort before non-numeric
+                        return (0, num, x)
+                    except Exception:
+                        return (1, first.lower(), x)
+
                 try:
-                    buildings.sort(key=lambda x: int(x.split('/')[0]) if x.replace('/', '').isdigit() else x)
-                except:
+                    buildings.sort(key=building_key)
+                except Exception:
+                    # don't break API if sorting fails for unexpected formats
+                    logger.exception('Failed to sort buildings list')
                     pass
                 return {'buildings': buildings}
         return {'buildings': []}
@@ -262,21 +281,22 @@ async def map_style():
 
 # ========== ISTORIC CĂUTĂRI ==========
 @api_router.post('/search/save')
-async def save_search(query: str):
+async def save_search(req: SaveSearchRequest):
+    query = req.query.strip() if req and req.query else ''
     if not searches_collection:
         raise HTTPException(status_code=503, detail="MongoDB not available")
-    if not query or len(query.strip()) == 0:
+    if not query or len(query) == 0:
         raise HTTPException(status_code=400, detail="Query cannot be empty")
     
-    existing = await searches_collection.find_one({"query": query.strip()})
+    existing = await searches_collection.find_one({"query": query})
     if existing:
         await searches_collection.update_one(
-            {"query": query.strip()},
+            {"query": query},
             {"$set": {"timestamp": datetime.utcnow()}}
         )
         return {"message": "Search updated", "id": existing.get("id")}
     
-    search = SavedSearch(query=query.strip())
+    search = SavedSearch(query=query)
     await searches_collection.insert_one(search.dict())
     return {"message": "Search saved", "id": search.id}
 
