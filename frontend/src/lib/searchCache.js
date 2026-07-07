@@ -31,10 +31,10 @@ export function getCache() {
 }
 
 /**
- * Add a full address to cache (street + building number)
+ * Add a full address to cache (street + building number + coordinates)
  * Example: "Strada 1 Mai, 15, Florești"
  */
-export function addAddressToCache(streetName, buildingNumber, city) {
+export function addAddressToCache(streetName, buildingNumber, city, lat = null, lon = null) {
   const fullAddress = `${streetName}, ${buildingNumber}, ${city}`;
   
   if (!fullAddress || fullAddress.trim().length < 5) return;
@@ -54,6 +54,8 @@ export function addAddressToCache(streetName, buildingNumber, city) {
       street: streetName,
       building: buildingNumber,
       city: city,
+      lat: lat,
+      lon: lon,
       timestamp: Date.now(),
     });
 
