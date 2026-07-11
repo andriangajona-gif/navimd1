@@ -1,7 +1,8 @@
 {
-  "buildCommand": "cd frontend && npm run build",
-  "devCommand": "cd frontend && npm start",
-  "installCommand": "cd frontend && npm install",
-  "framework": "create-react-app",
-  "root": "frontend"
+  "builds": [
+    { "src": "package.json", "use": "@vercel/static-build" }
+  ],
+  "rewrites": [
+    { "source": "/(.*)", "destination": "/index.html" }
+  ]
 }
