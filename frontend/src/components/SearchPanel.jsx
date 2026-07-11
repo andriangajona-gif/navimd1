@@ -19,7 +19,7 @@ const EXTRA_BUILDINGS = {
 
 // ===== FUNCȚIE SORTARE INTELIGENTĂ =====
 function sortBuildings(numbers) {
-  return numbers.sort((a, b) => {
+  return [...numbers].sort((a, b) => {
     const parse = (s) => {
       const match = s.match(/^(\d+)(?:\/([A-Za-z]+))?$/);
       if (match) {
@@ -80,7 +80,6 @@ export default function SearchPanel({ onSelectDestination, userPos }) {
   const [showAddInput, setShowAddInput] = useState(false);
   const [newBuilding, setNewBuilding] = useState('');
   const [currentBuildings, setCurrentBuildings] = useState([]);
-  const [refreshKey, setRefreshKey] = useState(0);
   const debounceRef = useRef(null);
   const abortRef = useRef(null);
   const inputRef = useRef(null);
@@ -94,7 +93,7 @@ export default function SearchPanel({ onSelectDestination, userPos }) {
     setSearchHistory(history);
   };
 
-  // ===== ACTUALIZEAZĂ LISTA DE NUMERE CÂND SE SCHIMBĂ STRADA SAU REFRESH_KEY =====
+  // ===== ACTUALIZEAZĂ LISTA DE NUMERE CÂND SE SCHIMBĂ STRADA =====
   useEffect(() => {
     if (!selectedStreet) {
       setCurrentBuildings([]);
@@ -105,7 +104,7 @@ export default function SearchPanel({ onSelectDestination, userPos }) {
     const apiBuildings = selectedStreet.buildings || [];
     const buildings = getBuildingsWithExtras(streetName, city, apiBuildings);
     setCurrentBuildings(buildings);
-  }, [selectedStreet, refreshKey]);
+  }, [selectedStreet]);
 
   useEffect(() => {
     const query = q.trim();
@@ -200,6 +199,7 @@ export default function SearchPanel({ onSelectDestination, userPos }) {
     resetAfterSelect();
   };
 
+  // ===== FUNCȚIA DE ADĂUGARE – ACTUALIZEAZĂ DIRECT LISTA =====
   const handleAddBuilding = () => {
     if (!selectedStreet) return;
     const streetName = selectedStreet.name;
@@ -207,10 +207,17 @@ export default function SearchPanel({ onSelectDestination, userPos }) {
     const num = newBuilding.trim();
     if (!num) return;
     
+    // Salvează în localStorage
     saveBuildingToLocal(streetName, city, num);
+    
+    // Actualizează direct lista curentă
+    const updatedBuildings = [...currentBuildings, num];
+    const unique = [...new Set(updatedBuildings)];
+    const sorted = sortBuildings(unique);
+    setCurrentBuildings(sorted);
+    
     setNewBuilding('');
     setShowAddInput(false);
-    setRefreshKey(prev => prev + 1); // forțează re-render
   };
 
   const handleDeleteHistoryItem = async (id) => {
