@@ -8,19 +8,18 @@ const MANUAL_COORDS = {
   "67": { lat: 47.90616, lon: 28.28910 },
 };
 
+const PRIORITY_CITY = 'Florești';
+const LOCAL_STORAGE_KEY = 'custom_buildings';
+
 // ===== NUMERE ADĂUGATE MANUAL (hardcodate) =====
 const EXTRA_BUILDINGS = {
   "Strada 9 Mai|Florești": ["68", "69", "70"],
   "Mihai Eminescu|Florești": ["28"],
 };
 
-const PRIORITY_CITY = 'Florești';
-const LOCAL_STORAGE_KEY = 'custom_buildings';
-
 // ===== FUNCȚIE SORTARE INTELIGENTĂ =====
 function sortBuildings(numbers) {
   return numbers.sort((a, b) => {
-    // Extrage partea numerică și litera (ex: "6/A" -> num=6, lit='A')
     const parse = (s) => {
       const match = s.match(/^(\d+)(?:\/([A-Za-z]+))?$/);
       if (match) {
@@ -40,7 +39,6 @@ function getBuildingsWithExtras(streetName, city, apiBuildings) {
   const key = `${streetName}|${city}`;
   const extras = EXTRA_BUILDINGS[key] || [];
   
-  // Citește din localStorage
   let saved = [];
   try {
     const stored = localStorage.getItem(LOCAL_STORAGE_KEY);
@@ -50,7 +48,6 @@ function getBuildingsWithExtras(streetName, city, apiBuildings) {
     }
   } catch (e) {}
   
-  // Combină toate sursele și elimină duplicatele
   const all = [...apiBuildings, ...extras, ...saved];
   const unique = [...new Set(all)];
   return sortBuildings(unique);
@@ -82,6 +79,8 @@ export default function SearchPanel({ onSelectDestination, userPos }) {
   const [searchHistory, setSearchHistory] = useState([]);
   const [showAddInput, setShowAddInput] = useState(false);
   const [newBuilding, setNewBuilding] = useState('');
+  const [currentBuildings, setCurrentBuildings] = useState([]);
+  const [refreshKey, setRefreshKey] = useState(0);
   const debounceRef = useRef(null);
   const abortRef = useRef(null);
   const inputRef = useRef(null);
@@ -95,8 +94,18 @@ export default function SearchPanel({ onSelectDestination, userPos }) {
     setSearchHistory(history);
   };
 
-  // Forțează re-render când se schimbă numerele salvate
-  const [refreshKey, setRefreshKey] = useState(0);
+  // ===== ACTUALIZEAZĂ LISTA DE NUMERE CÂND SE SCHIMBĂ STRADA SAU REFRESH_KEY =====
+  useEffect(() => {
+    if (!selectedStreet) {
+      setCurrentBuildings([]);
+      return;
+    }
+    const streetName = selectedStreet.name;
+    const city = selectedStreet.parent_name || PRIORITY_CITY;
+    const apiBuildings = selectedStreet.buildings || [];
+    const buildings = getBuildingsWithExtras(streetName, city, apiBuildings);
+    setCurrentBuildings(buildings);
+  }, [selectedStreet, refreshKey]);
 
   useEffect(() => {
     const query = q.trim();
@@ -216,6 +225,7 @@ export default function SearchPanel({ onSelectDestination, userPos }) {
     setError(null);
     setShowAddInput(false);
     setNewBuilding('');
+    setCurrentBuildings([]);
   };
 
   const reset = () => {
@@ -224,18 +234,10 @@ export default function SearchPanel({ onSelectDestination, userPos }) {
     setError(null);
     setShowAddInput(false);
     setNewBuilding('');
+    setCurrentBuildings([]);
   };
 
   const showHistory = !selectedStreet && q.trim().length === 1 && searchHistory.length > 0;
-
-  // Obține numerele pentru strada selectată (inclusiv cele salvate)
-  const getCurrentBuildings = () => {
-    if (!selectedStreet) return [];
-    const streetName = selectedStreet.name;
-    const city = selectedStreet.parent_name || PRIORITY_CITY;
-    const apiBuildings = selectedStreet.buildings || [];
-    return getBuildingsWithExtras(streetName, city, apiBuildings);
-  };
 
   return (
     <div className="absolute top-3 left-3 right-3 z-30">
@@ -322,9 +324,9 @@ export default function SearchPanel({ onSelectDestination, userPos }) {
 
           {selectedStreet && (
             <div className="p-3">
-              <div className="text-black font-bold mb-2">Выберите номер дома ({getCurrentBuildings().length}):</div>
+              <div className="text-black font-bold mb-2">Выберите номер дома ({currentBuildings.length}):</div>
               <div className="grid grid-cols-4 sm:grid-cols-6 gap-2">
-                {getCurrentBuildings().map(b => (
+                {currentBuildings.map(b => (
                   <button
                     key={b}
                     onClick={() => handleBuildingClick(b)}
