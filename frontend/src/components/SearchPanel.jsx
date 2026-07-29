@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Search, X, MapPin, Building2, ChevronRight, ArrowLeft, Download } from 'lucide-react';
-import { getRoute, haversine } from '../lib/api';
+import { Search, X, MapPin, Building2, ChevronRight, ArrowLeft } from 'lucide-react';
+import { getRoute } from '../lib/api';
 
 const PRIORITY_CITY = 'Florești';
 
@@ -36,101 +36,7 @@ async function getStreetsFromDB() {
   });
 }
 
-async function saveStreetsToDB(streets) {
-  if (!db) db = await openDB();
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(STORE_NAME, 'readwrite');
-    const store = tx.objectStore(STORE_NAME);
-    store.clear();
-    streets.forEach(s => store.add(s));
-    tx.oncomplete = () => resolve();
-    tx.onerror = () => reject(tx.error);
-  });
-}
-
-// ===== DESCĂRCARE DATE OSM (CU PROXY CORS) =====
-async function fetchOSMData(city = 'Florești') {
-  const query = `
-    [out:json][timeout:60];
-    area[name="${city}"]->.searchArea;
-    (
-      way["highway"~"^(primary|secondary|tertiary|residential|unclassified|service)$"](area.searchArea);
-      way["addr:housenumber"](area.searchArea);
-    );
-    out body;
-    >;
-    out skel qt;
-  `;
-  
-  const proxyUrl = 'https://corsproxy.io/?';
-  const overpassUrl = 'https://overpass-api.de/api/interpreter';
-  const fullUrl = `${proxyUrl}${encodeURIComponent(overpassUrl)}`;
-  
-  const response = await fetch(fullUrl, {
-    method: 'POST',
-    body: `data=${encodeURIComponent(query)}`,
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-  });
-  
-  if (!response.ok) throw new Error('Eroare la descărcare');
-  const data = await response.json();
-  return processOSMData(data);
-}
-
-function processOSMData(osmData) {
-  const nodes = {};
-  const streets = {};
-  osmData.elements.forEach(el => {
-    if (el.type === 'node') {
-      nodes[el.id] = { lat: el.lat, lon: el.lon };
-    }
-  });
-  osmData.elements.forEach(el => {
-    if (el.type === 'way' && el.tags) {
-      const name = el.tags.name;
-      const housenumber = el.tags['addr:housenumber'];
-      const highway = el.tags.highway;
-      if (name && (highway === 'residential' || highway === 'primary' || highway === 'secondary' || highway === 'tertiary' || highway === 'unclassified' || highway === 'service')) {
-        let lat = 0, lon = 0, count = 0;
-        el.nodes.forEach(nodeId => {
-          const node = nodes[nodeId];
-          if (node) {
-            lat += node.lat;
-            lon += node.lon;
-            count++;
-          }
-        });
-        if (count > 0) {
-          lat /= count;
-          lon /= count;
-          if (!streets[name]) {
-            streets[name] = { name, buildings: [], centroid: { lat, lon }, count: 0 };
-          }
-          streets[name].count++;
-        }
-      }
-      if (housenumber && name) {
-        if (!streets[name]) {
-          streets[name] = { name, buildings: [], centroid: { lat: 0, lon: 0 }, count: 0 };
-        }
-        if (!streets[name].buildings.includes(housenumber)) {
-          streets[name].buildings.push(housenumber);
-        }
-      }
-    }
-  });
-  Object.keys(streets).forEach(key => {
-    streets[key].buildings = streets[key].buildings.sort((a, b) => {
-      const na = parseInt(a);
-      const nb = parseInt(b);
-      if (!isNaN(na) && !isNaN(nb)) return na - nb;
-      return a.localeCompare(b);
-    });
-    streets[key].id = key;
-  });
-  return Object.values(streets);
-}
-
+// ===== FUNCȚIE SORTARE =====
 function sortBuildings(numbers) {
   return [...numbers].sort((a, b) => {
     const parse = (s) => {
@@ -155,11 +61,11 @@ export default function SearchPanel({ onSelectDestination, userPos }) {
   const [selectedStreet, setSelectedStreet] = useState(null);
   const [error, setError] = useState(null);
   const [searchHistory, setSearchHistory] = useState([]);
-  const [isDownloading, setIsDownloading] = useState(false);
-  const [hasData, setHasData] = useState(false);
   const [allStreets, setAllStreets] = useState([]);
+  const [hasData, setHasData] = useState(false);
   const debounceRef = useRef(null);
 
+  // Încarcă datele la pornire
   useEffect(() => {
     loadLocalData();
     loadHistory();
@@ -171,6 +77,8 @@ export default function SearchPanel({ onSelectDestination, userPos }) {
       if (streets && streets.length > 0) {
         setAllStreets(streets);
         setHasData(true);
+      } else {
+        console.warn('Nu există date în IndexedDB.');
       }
     } catch (e) {
       console.warn('Nu s-au putut încărca datele locale:', e);
@@ -190,6 +98,7 @@ export default function SearchPanel({ onSelectDestination, userPos }) {
     localStorage.setItem('search_history', JSON.stringify(updated));
   };
 
+  // ===== CĂUTARE LOCALĂ =====
   const searchLocal = useCallback((query) => {
     if (!allStreets.length) return [];
     const qLower = query.toLowerCase();
@@ -198,6 +107,7 @@ export default function SearchPanel({ onSelectDestination, userPos }) {
       .slice(0, 20);
   }, [allStreets]);
 
+  // ===== CĂUTARE CU DEBOUNCE =====
   useEffect(() => {
     const query = q.trim();
     if (query.length < 2 || selectedStreet) {
@@ -223,22 +133,6 @@ export default function SearchPanel({ onSelectDestination, userPos }) {
 
     return () => clearTimeout(debounceRef.current);
   }, [q, selectedStreet, searchLocal]);
-
-  const handleDownloadData = async () => {
-    setIsDownloading(true);
-    setError(null);
-    try {
-      const streets = await fetchOSMData(PRIORITY_CITY);
-      await saveStreetsToDB(streets);
-      setAllStreets(streets);
-      setHasData(true);
-      alert(`Date descărcate! S-au găsit ${streets.length} străzi.`);
-    } catch (e) {
-      setError('Eroare la descărcare: ' + e.message);
-    } finally {
-      setIsDownloading(false);
-    }
-  };
 
   const handleStreetClick = (street) => {
     setSelectedStreet(street);
@@ -299,16 +193,8 @@ export default function SearchPanel({ onSelectDestination, userPos }) {
           {!selectedStreet && (
             <>
               {!hasData && (
-                <div className="p-3 border-b border-white/30">
-                  <button
-                    onClick={handleDownloadData}
-                    disabled={isDownloading}
-                    className="w-full py-2 px-3 bg-amber-500/70 text-white rounded-xl flex items-center justify-center gap-2 font-medium hover:bg-amber-500/90 transition"
-                  >
-                    <Download size={18} />
-                    {isDownloading ? 'Descărcare...' : `Descarcă harta ${PRIORITY_CITY}`}
-                  </button>
-                  {error && <div className="mt-2 text-red-700 text-sm">{error}</div>}
+                <div className="p-3 border-b border-white/30 text-center text-sm text-black/70">
+                  ⏳ Se încarcă datele locale...
                 </div>
               )}
 
