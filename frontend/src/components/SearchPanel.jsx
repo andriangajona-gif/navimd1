@@ -48,7 +48,7 @@ async function saveStreetsToDB(streets) {
   });
 }
 
-// ===== DESCĂRCARE DATE OSM =====
+// ===== DESCĂRCARE DATE OSM (CU PROXY CORS) =====
 async function fetchOSMData(city = 'Florești') {
   const query = `
     [out:json][timeout:60];
@@ -61,12 +61,17 @@ async function fetchOSMData(city = 'Florești') {
     >;
     out skel qt;
   `;
-  const url = 'https://overpass-api.de/api/interpreter';
-  const response = await fetch(url, {
+  
+  const proxyUrl = 'https://corsproxy.io/?';
+  const overpassUrl = 'https://overpass-api.de/api/interpreter';
+  const fullUrl = `${proxyUrl}${encodeURIComponent(overpassUrl)}`;
+  
+  const response = await fetch(fullUrl, {
     method: 'POST',
     body: `data=${encodeURIComponent(query)}`,
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
   });
+  
   if (!response.ok) throw new Error('Eroare la descărcare');
   const data = await response.json();
   return processOSMData(data);
@@ -121,13 +126,11 @@ function processOSMData(osmData) {
       if (!isNaN(na) && !isNaN(nb)) return na - nb;
       return a.localeCompare(b);
     });
-    // Asigură un id unic
     streets[key].id = key;
   });
   return Object.values(streets);
 }
 
-// ===== FUNCȚIE SORTARE =====
 function sortBuildings(numbers) {
   return [...numbers].sort((a, b) => {
     const parse = (s) => {
@@ -157,7 +160,6 @@ export default function SearchPanel({ onSelectDestination, userPos }) {
   const [allStreets, setAllStreets] = useState([]);
   const debounceRef = useRef(null);
 
-  // Încarcă datele la pornire
   useEffect(() => {
     loadLocalData();
     loadHistory();
@@ -188,7 +190,6 @@ export default function SearchPanel({ onSelectDestination, userPos }) {
     localStorage.setItem('search_history', JSON.stringify(updated));
   };
 
-  // ===== CĂUTARE LOCALĂ (useCallback pentru dependențe) =====
   const searchLocal = useCallback((query) => {
     if (!allStreets.length) return [];
     const qLower = query.toLowerCase();
@@ -197,7 +198,6 @@ export default function SearchPanel({ onSelectDestination, userPos }) {
       .slice(0, 20);
   }, [allStreets]);
 
-  // ===== CĂUTARE CU DEBOUNCE =====
   useEffect(() => {
     const query = q.trim();
     if (query.length < 2 || selectedStreet) {
@@ -222,9 +222,8 @@ export default function SearchPanel({ onSelectDestination, userPos }) {
     }, 200);
 
     return () => clearTimeout(debounceRef.current);
-  }, [q, selectedStreet, searchLocal]); // ← DEPENDENȚELE CORECTE
+  }, [q, selectedStreet, searchLocal]);
 
-  // ===== DESCĂRCARE DATE =====
   const handleDownloadData = async () => {
     setIsDownloading(true);
     setError(null);
@@ -299,7 +298,6 @@ export default function SearchPanel({ onSelectDestination, userPos }) {
         <div className="mt-2 bg-white/30 backdrop-blur-sm border border-white/40 rounded-xl max-h-[60vh] overflow-auto">
           {!selectedStreet && (
             <>
-              {/* Buton de descărcare date */}
               {!hasData && (
                 <div className="p-3 border-b border-white/30">
                   <button
