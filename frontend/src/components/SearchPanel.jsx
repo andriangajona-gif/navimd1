@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Search, X, MapPin, Building2, ChevronRight, ArrowLeft, Download } from 'lucide-react';
 import { getRoute, haversine } from '../lib/api';
 
@@ -41,7 +41,6 @@ async function saveStreetsToDB(streets) {
   return new Promise((resolve, reject) => {
     const tx = db.transaction(STORE_NAME, 'readwrite');
     const store = tx.objectStore(STORE_NAME);
-    // Șterge datele vechi
     store.clear();
     streets.forEach(s => store.add(s));
     tx.oncomplete = () => resolve();
@@ -62,14 +61,12 @@ async function fetchOSMData(city = 'Florești') {
     >;
     out skel qt;
   `;
-  
   const url = 'https://overpass-api.de/api/interpreter';
   const response = await fetch(url, {
     method: 'POST',
     body: `data=${encodeURIComponent(query)}`,
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
   });
-  
   if (!response.ok) throw new Error('Eroare la descărcare');
   const data = await response.json();
   return processOSMData(data);
@@ -78,23 +75,17 @@ async function fetchOSMData(city = 'Florești') {
 function processOSMData(osmData) {
   const nodes = {};
   const streets = {};
-  
-  // Extrage nodurile
   osmData.elements.forEach(el => {
     if (el.type === 'node') {
       nodes[el.id] = { lat: el.lat, lon: el.lon };
     }
   });
-  
-  // Extrage străzile și numerele
   osmData.elements.forEach(el => {
     if (el.type === 'way' && el.tags) {
       const name = el.tags.name;
       const housenumber = el.tags['addr:housenumber'];
       const highway = el.tags.highway;
-      
       if (name && (highway === 'residential' || highway === 'primary' || highway === 'secondary' || highway === 'tertiary' || highway === 'unclassified' || highway === 'service')) {
-        // Calculează centroidul
         let lat = 0, lon = 0, count = 0;
         el.nodes.forEach(nodeId => {
           const node = nodes[nodeId];
@@ -113,8 +104,6 @@ function processOSMData(osmData) {
           streets[name].count++;
         }
       }
-      
-      // Adaugă numărul casei
       if (housenumber && name) {
         if (!streets[name]) {
           streets[name] = { name, buildings: [], centroid: { lat: 0, lon: 0 }, count: 0 };
@@ -125,8 +114,6 @@ function processOSMData(osmData) {
       }
     }
   });
-  
-  // Sortare numere
   Object.keys(streets).forEach(key => {
     streets[key].buildings = streets[key].buildings.sort((a, b) => {
       const na = parseInt(a);
@@ -134,8 +121,9 @@ function processOSMData(osmData) {
       if (!isNaN(na) && !isNaN(nb)) return na - nb;
       return a.localeCompare(b);
     });
+    // Asigură un id unic
+    streets[key].id = key;
   });
-  
   return Object.values(streets);
 }
 
@@ -200,31 +188,14 @@ export default function SearchPanel({ onSelectDestination, userPos }) {
     localStorage.setItem('search_history', JSON.stringify(updated));
   };
 
-  // ===== DESCĂRCARE DATE =====
-  const handleDownloadData = async () => {
-    setIsDownloading(true);
-    setError(null);
-    try {
-      const streets = await fetchOSMData(PRIORITY_CITY);
-      await saveStreetsToDB(streets);
-      setAllStreets(streets);
-      setHasData(true);
-      alert(`Date descărcate! S-au găsit ${streets.length} străzi.`);
-    } catch (e) {
-      setError('Eroare la descărcare: ' + e.message);
-    } finally {
-      setIsDownloading(false);
-    }
-  };
-
-  // ===== CĂUTARE LOCALĂ =====
-  const searchLocal = (query) => {
+  // ===== CĂUTARE LOCALĂ (useCallback pentru dependențe) =====
+  const searchLocal = useCallback((query) => {
     if (!allStreets.length) return [];
     const qLower = query.toLowerCase();
     return allStreets
       .filter(s => s.name.toLowerCase().includes(qLower))
       .slice(0, 20);
-  };
+  }, [allStreets]);
 
   // ===== CĂUTARE CU DEBOUNCE =====
   useEffect(() => {
@@ -251,7 +222,24 @@ export default function SearchPanel({ onSelectDestination, userPos }) {
     }, 200);
 
     return () => clearTimeout(debounceRef.current);
-  }, [q, selectedStreet, allStreets]);
+  }, [q, selectedStreet, searchLocal]); // ← DEPENDENȚELE CORECTE
+
+  // ===== DESCĂRCARE DATE =====
+  const handleDownloadData = async () => {
+    setIsDownloading(true);
+    setError(null);
+    try {
+      const streets = await fetchOSMData(PRIORITY_CITY);
+      await saveStreetsToDB(streets);
+      setAllStreets(streets);
+      setHasData(true);
+      alert(`Date descărcate! S-au găsit ${streets.length} străzi.`);
+    } catch (e) {
+      setError('Eroare la descărcare: ' + e.message);
+    } finally {
+      setIsDownloading(false);
+    }
+  };
 
   const handleStreetClick = (street) => {
     setSelectedStreet(street);
@@ -333,7 +321,7 @@ export default function SearchPanel({ onSelectDestination, userPos }) {
                   {!loading && results.length === 0 && q.length >= 2 && !error && <div className="px-4 py-3 text-black/70">Ничего не найдено</div>}
                   {results.map(s => (
                     <button
-                      key={s.name}
+                      key={s.id}
                       onClick={() => handleStreetClick(s)}
                       className="w-full text-left px-3 py-2.5 flex gap-3 hover:bg-white/20 border-b border-white/30"
                     >
