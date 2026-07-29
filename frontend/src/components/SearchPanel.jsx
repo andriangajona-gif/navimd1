@@ -1,23 +1,145 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Search, X, MapPin, Building2, ChevronRight, ArrowLeft, Plus } from 'lucide-react';
-import { searchStreets, geocodeBuilding, saveSearch, getSearchHistory, deleteSearch } from '../lib/api';
-
-const MANUAL_COORDS = {
-  "21": { lat: 47.90479, lon: 28.29035 },
-  "25": { lat: 47.90479, lon: 28.29035 },
-  "67": { lat: 47.90616, lon: 28.28910 },
-};
+import { Search, X, MapPin, Building2, ChevronRight, ArrowLeft, Download } from 'lucide-react';
+import { getRoute, haversine } from '../lib/api';
 
 const PRIORITY_CITY = 'Florești';
-const LOCAL_STORAGE_KEY = 'custom_buildings';
 
-// ===== NUMERE ADĂUGATE MANUAL (hardcodate) =====
-const EXTRA_BUILDINGS = {
-  "Strada 9 Mai|Florești": ["68", "69", "70"],
-  "Mihai Eminescu|Florești": ["28"],
-};
+// ===== INDEXEDDB =====
+const DB_NAME = 'NavigatorMD';
+const DB_VERSION = 1;
+const STORE_NAME = 'streets';
 
-// ===== FUNCȚIE SORTARE INTELIGENTĂ =====
+let db = null;
+
+function openDB() {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(DB_NAME, DB_VERSION);
+    request.onupgradeneeded = (e) => {
+      const db = e.target.result;
+      if (!db.objectStoreNames.contains(STORE_NAME)) {
+        db.createObjectStore(STORE_NAME, { keyPath: 'id' });
+      }
+    };
+    request.onsuccess = (e) => resolve(e.target.result);
+    request.onerror = (e) => reject(e.target.error);
+  });
+}
+
+async function getStreetsFromDB() {
+  if (!db) db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE_NAME, 'readonly');
+    const store = tx.objectStore(STORE_NAME);
+    const request = store.getAll();
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+}
+
+async function saveStreetsToDB(streets) {
+  if (!db) db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE_NAME, 'readwrite');
+    const store = tx.objectStore(STORE_NAME);
+    // Șterge datele vechi
+    store.clear();
+    streets.forEach(s => store.add(s));
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+// ===== DESCĂRCARE DATE OSM =====
+async function fetchOSMData(city = 'Florești') {
+  const query = `
+    [out:json][timeout:60];
+    area[name="${city}"]->.searchArea;
+    (
+      way["highway"~"^(primary|secondary|tertiary|residential|unclassified|service)$"](area.searchArea);
+      way["addr:housenumber"](area.searchArea);
+    );
+    out body;
+    >;
+    out skel qt;
+  `;
+  
+  const url = 'https://overpass-api.de/api/interpreter';
+  const response = await fetch(url, {
+    method: 'POST',
+    body: `data=${encodeURIComponent(query)}`,
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+  });
+  
+  if (!response.ok) throw new Error('Eroare la descărcare');
+  const data = await response.json();
+  return processOSMData(data);
+}
+
+function processOSMData(osmData) {
+  const nodes = {};
+  const streets = {};
+  
+  // Extrage nodurile
+  osmData.elements.forEach(el => {
+    if (el.type === 'node') {
+      nodes[el.id] = { lat: el.lat, lon: el.lon };
+    }
+  });
+  
+  // Extrage străzile și numerele
+  osmData.elements.forEach(el => {
+    if (el.type === 'way' && el.tags) {
+      const name = el.tags.name;
+      const housenumber = el.tags['addr:housenumber'];
+      const highway = el.tags.highway;
+      
+      if (name && (highway === 'residential' || highway === 'primary' || highway === 'secondary' || highway === 'tertiary' || highway === 'unclassified' || highway === 'service')) {
+        // Calculează centroidul
+        let lat = 0, lon = 0, count = 0;
+        el.nodes.forEach(nodeId => {
+          const node = nodes[nodeId];
+          if (node) {
+            lat += node.lat;
+            lon += node.lon;
+            count++;
+          }
+        });
+        if (count > 0) {
+          lat /= count;
+          lon /= count;
+          if (!streets[name]) {
+            streets[name] = { name, buildings: [], centroid: { lat, lon }, count: 0 };
+          }
+          streets[name].count++;
+        }
+      }
+      
+      // Adaugă numărul casei
+      if (housenumber && name) {
+        if (!streets[name]) {
+          streets[name] = { name, buildings: [], centroid: { lat: 0, lon: 0 }, count: 0 };
+        }
+        if (!streets[name].buildings.includes(housenumber)) {
+          streets[name].buildings.push(housenumber);
+        }
+      }
+    }
+  });
+  
+  // Sortare numere
+  Object.keys(streets).forEach(key => {
+    streets[key].buildings = streets[key].buildings.sort((a, b) => {
+      const na = parseInt(a);
+      const nb = parseInt(b);
+      if (!isNaN(na) && !isNaN(nb)) return na - nb;
+      return a.localeCompare(b);
+    });
+  });
+  
+  return Object.values(streets);
+}
+
+// ===== FUNCȚIE SORTARE =====
 function sortBuildings(numbers) {
   return [...numbers].sort((a, b) => {
     const parse = (s) => {
@@ -34,41 +156,6 @@ function sortBuildings(numbers) {
   });
 }
 
-// ===== FUNCȚIE PENTRU A OBTINE TOATE NUMERELE =====
-function getBuildingsWithExtras(streetName, city, apiBuildings) {
-  const key = `${streetName}|${city}`;
-  const extras = EXTRA_BUILDINGS[key] || [];
-  
-  let saved = [];
-  try {
-    const stored = localStorage.getItem(LOCAL_STORAGE_KEY);
-    if (stored) {
-      const data = JSON.parse(stored);
-      saved = data[key] || [];
-    }
-  } catch (e) {}
-  
-  const all = [...apiBuildings, ...extras, ...saved];
-  const unique = [...new Set(all)];
-  return sortBuildings(unique);
-}
-
-// ===== FUNCȚIE PENTRU A SALVA UN NUMĂR ÎN LOCALSTORAGE =====
-function saveBuildingToLocal(streetName, city, buildingNumber) {
-  const key = `${streetName}|${city}`;
-  try {
-    const stored = localStorage.getItem(LOCAL_STORAGE_KEY);
-    let data = stored ? JSON.parse(stored) : {};
-    if (!data[key]) data[key] = [];
-    if (!data[key].includes(buildingNumber)) {
-      data[key].push(buildingNumber);
-      localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(data));
-    }
-  } catch (e) {
-    console.warn('Failed to save building:', e);
-  }
-}
-
 export default function SearchPanel({ onSelectDestination, userPos }) {
   const [q, setQ] = useState('');
   const [open, setOpen] = useState(false);
@@ -77,35 +164,69 @@ export default function SearchPanel({ onSelectDestination, userPos }) {
   const [selectedStreet, setSelectedStreet] = useState(null);
   const [error, setError] = useState(null);
   const [searchHistory, setSearchHistory] = useState([]);
-  const [showAddInput, setShowAddInput] = useState(false);
-  const [newBuilding, setNewBuilding] = useState('');
-  const [currentBuildings, setCurrentBuildings] = useState([]);
+  const [isDownloading, setIsDownloading] = useState(false);
+  const [hasData, setHasData] = useState(false);
+  const [allStreets, setAllStreets] = useState([]);
   const debounceRef = useRef(null);
-  const abortRef = useRef(null);
-  const inputRef = useRef(null);
 
+  // Încarcă datele la pornire
   useEffect(() => {
+    loadLocalData();
     loadHistory();
   }, []);
 
-  const loadHistory = async () => {
-    const history = await getSearchHistory(10);
-    setSearchHistory(history);
+  const loadLocalData = async () => {
+    try {
+      const streets = await getStreetsFromDB();
+      if (streets && streets.length > 0) {
+        setAllStreets(streets);
+        setHasData(true);
+      }
+    } catch (e) {
+      console.warn('Nu s-au putut încărca datele locale:', e);
+    }
   };
 
-  // ===== ACTUALIZEAZĂ LISTA DE NUMERE CÂND SE SCHIMBĂ STRADA =====
-  useEffect(() => {
-    if (!selectedStreet) {
-      setCurrentBuildings([]);
-      return;
-    }
-    const streetName = selectedStreet.name;
-    const city = selectedStreet.parent_name || PRIORITY_CITY;
-    const apiBuildings = selectedStreet.buildings || [];
-    const buildings = getBuildingsWithExtras(streetName, city, apiBuildings);
-    setCurrentBuildings(buildings);
-  }, [selectedStreet]);
+  const loadHistory = async () => {
+    try {
+      const stored = localStorage.getItem('search_history');
+      if (stored) setSearchHistory(JSON.parse(stored));
+    } catch (e) {}
+  };
 
+  const saveHistory = (query) => {
+    const updated = [query, ...searchHistory.filter(h => h !== query)].slice(0, 10);
+    setSearchHistory(updated);
+    localStorage.setItem('search_history', JSON.stringify(updated));
+  };
+
+  // ===== DESCĂRCARE DATE =====
+  const handleDownloadData = async () => {
+    setIsDownloading(true);
+    setError(null);
+    try {
+      const streets = await fetchOSMData(PRIORITY_CITY);
+      await saveStreetsToDB(streets);
+      setAllStreets(streets);
+      setHasData(true);
+      alert(`Date descărcate! S-au găsit ${streets.length} străzi.`);
+    } catch (e) {
+      setError('Eroare la descărcare: ' + e.message);
+    } finally {
+      setIsDownloading(false);
+    }
+  };
+
+  // ===== CĂUTARE LOCALĂ =====
+  const searchLocal = (query) => {
+    if (!allStreets.length) return [];
+    const qLower = query.toLowerCase();
+    return allStreets
+      .filter(s => s.name.toLowerCase().includes(qLower))
+      .slice(0, 20);
+  };
+
+  // ===== CĂUTARE CU DEBOUNCE =====
   useEffect(() => {
     const query = q.trim();
     if (query.length < 2 || selectedStreet) {
@@ -115,114 +236,41 @@ export default function SearchPanel({ onSelectDestination, userPos }) {
       return;
     }
 
-    if (abortRef.current) abortRef.current.abort();
-    const controller = new AbortController();
-    abortRef.current = controller;
     if (debounceRef.current) clearTimeout(debounceRef.current);
-
     setLoading(true);
-    setError(null);
 
-    debounceRef.current = setTimeout(async () => {
-      try {
-        const data = await searchStreets(query, PRIORITY_CITY);
-        if (controller.signal.aborted) return;
-        let items = (data.results || []).filter(it => it.type === 'street');
-        items = items.map(it => it.name === "str. 9 Mai" ? { ...it, name: "Strada 9 Mai" } : it);
-
-        const florestiItems = items.filter(it => it.parent_name === PRIORITY_CITY);
-        const otherItems = items.filter(it => it.parent_name !== PRIORITY_CITY);
-        const sortedItems = [...florestiItems, ...otherItems];
-        setResults(sortedItems);
-
-        if (sortedItems.length === 0) {
-          setError('Ничего не найдено');
-        } else {
-          setError(null);
-          await saveSearch(query);
-          loadHistory();
-        }
-      } catch (e) {
-        if (!controller.signal.aborted) {
-          setError('Ошибка поиска. Попробуйте позже.');
-          console.warn(e);
-        }
-      } finally {
-        if (!controller.signal.aborted) setLoading(false);
+    debounceRef.current = setTimeout(() => {
+      const found = searchLocal(query);
+      setResults(found);
+      setLoading(false);
+      if (found.length === 0 && query.length >= 2) {
+        setError('Nu s-a găsit nicio stradă');
+      } else {
+        setError(null);
       }
-    }, 300);
+    }, 200);
 
-    return () => {
-      clearTimeout(debounceRef.current);
-      controller.abort();
-    };
-  }, [q, selectedStreet]);
+    return () => clearTimeout(debounceRef.current);
+  }, [q, selectedStreet, allStreets]);
 
   const handleStreetClick = (street) => {
-    if (street.name === "str. 9 Mai") {
-      street = { ...street, name: "Strada 9 Mai" };
-    }
     setSelectedStreet(street);
-    setShowAddInput(false);
-    setNewBuilding('');
+    saveHistory(street.name);
   };
 
-  const handleBuildingClick = async (b) => {
+  const handleBuildingClick = (b) => {
     if (!selectedStreet) return;
-    let lat, lon;
-    const streetName = selectedStreet.name;
-    const city = PRIORITY_CITY;
-
-    if (streetName === "Strada 9 Mai" && MANUAL_COORDS[b]) {
-      lat = MANUAL_COORDS[b].lat;
-      lon = MANUAL_COORDS[b].lon;
-    } else {
-      const centroid = selectedStreet.centroid;
-      if (centroid && centroid.lat && centroid.lon) {
-        lat = centroid.lat;
-        lon = centroid.lon;
-      } else {
-        lat = 47.8936;
-        lon = 28.2933;
-      }
-    }
-
+    const { centroid } = selectedStreet;
     const dest = {
-      lat, lon,
-      label: `${streetName}, ${b}, ${city}`,
-      street: streetName,
+      lat: centroid.lat,
+      lon: centroid.lon,
+      label: `${selectedStreet.name}, ${b}, ${PRIORITY_CITY}`,
+      street: selectedStreet.name,
       building: b,
-      city: city,
+      city: PRIORITY_CITY,
     };
-
     onSelectDestination(dest, false);
     resetAfterSelect();
-  };
-
-  // ===== FUNCȚIA DE ADĂUGARE – ACTUALIZEAZĂ DIRECT LISTA =====
-  const handleAddBuilding = () => {
-    if (!selectedStreet) return;
-    const streetName = selectedStreet.name;
-    const city = PRIORITY_CITY;
-    const num = newBuilding.trim();
-    if (!num) return;
-    
-    // Salvează în localStorage
-    saveBuildingToLocal(streetName, city, num);
-    
-    // Actualizează direct lista curentă
-    const updatedBuildings = [...currentBuildings, num];
-    const unique = [...new Set(updatedBuildings)];
-    const sorted = sortBuildings(unique);
-    setCurrentBuildings(sorted);
-    
-    setNewBuilding('');
-    setShowAddInput(false);
-  };
-
-  const handleDeleteHistoryItem = async (id) => {
-    await deleteSearch(id);
-    loadHistory();
   };
 
   const resetAfterSelect = () => {
@@ -230,21 +278,14 @@ export default function SearchPanel({ onSelectDestination, userPos }) {
     setSelectedStreet(null);
     setResults([]);
     setError(null);
-    setShowAddInput(false);
-    setNewBuilding('');
-    setCurrentBuildings([]);
   };
 
   const reset = () => {
-    if (abortRef.current) abortRef.current.abort();
-    setQ(''); setResults([]); setSelectedStreet(null);
+    setQ('');
+    setSelectedStreet(null);
+    setResults([]);
     setError(null);
-    setShowAddInput(false);
-    setNewBuilding('');
-    setCurrentBuildings([]);
   };
-
-  const showHistory = !selectedStreet && q.trim().length === 1 && searchHistory.length > 0;
 
   return (
     <div className="absolute top-3 left-3 right-3 z-30">
@@ -270,57 +311,56 @@ export default function SearchPanel({ onSelectDestination, userPos }) {
         <div className="mt-2 bg-white/30 backdrop-blur-sm border border-white/40 rounded-xl max-h-[60vh] overflow-auto">
           {!selectedStreet && (
             <>
+              {/* Buton de descărcare date */}
+              {!hasData && (
+                <div className="p-3 border-b border-white/30">
+                  <button
+                    onClick={handleDownloadData}
+                    disabled={isDownloading}
+                    className="w-full py-2 px-3 bg-amber-500/70 text-white rounded-xl flex items-center justify-center gap-2 font-medium hover:bg-amber-500/90 transition"
+                  >
+                    <Download size={18} />
+                    {isDownloading ? 'Descărcare...' : `Descarcă harta ${PRIORITY_CITY}`}
+                  </button>
+                  {error && <div className="mt-2 text-red-700 text-sm">{error}</div>}
+                </div>
+              )}
+
               {q.trim().length >= 2 && (
                 <>
                   {loading && <div className="px-4 py-3 text-black/70">Поиск...</div>}
                   {error && <div className="px-4 py-3 text-red-700">{error}</div>}
                   {!loading && results.length === 0 && q.length >= 2 && !error && <div className="px-4 py-3 text-black/70">Ничего не найдено</div>}
-                  {results.map(s => {
-                    const isPriority = s.parent_name === PRIORITY_CITY;
-                    return (
-                      <button
-                        key={s.id}
-                        onClick={() => handleStreetClick(s)}
-                        className={`w-full text-left px-3 py-2.5 flex gap-3 hover:bg-white/20 border-b border-white/30 ${
-                          isPriority ? 'bg-amber-50/30' : ''
-                        }`}
-                      >
-                        <div className="w-9 h-9 rounded-full bg-amber-500/70 flex items-center justify-center text-white"><MapPin size={18} /></div>
-                        <div className="flex-1">
-                          <div className="text-black font-medium">
-                            {s.name}
-                            {isPriority && <span className="text-amber-600 text-xs ml-2">⭐</span>}
-                          </div>
-                          <div className="text-black/60 text-xs">
-                            {s.parent_name || PRIORITY_CITY} · {s.count} домов
-                          </div>
-                        </div>
-                        <ChevronRight size={16} className="text-black/40" />
-                      </button>
-                    );
-                  })}
+                  {results.map(s => (
+                    <button
+                      key={s.name}
+                      onClick={() => handleStreetClick(s)}
+                      className="w-full text-left px-3 py-2.5 flex gap-3 hover:bg-white/20 border-b border-white/30"
+                    >
+                      <div className="w-9 h-9 rounded-full bg-amber-500/70 flex items-center justify-center text-white"><MapPin size={18} /></div>
+                      <div className="flex-1">
+                        <div className="text-black font-medium">{s.name}</div>
+                        <div className="text-black/60 text-xs">{PRIORITY_CITY} · {s.buildings.length} домов</div>
+                      </div>
+                      <ChevronRight size={16} className="text-black/40" />
+                    </button>
+                  ))}
                 </>
               )}
 
-              {showHistory && (
+              {q.trim().length === 1 && searchHistory.length > 0 && (
                 <div>
                   <div className="px-3 py-2 text-[12px] font-semibold text-black/70 border-b border-white/30">📜 Căutări recente</div>
                   {searchHistory.map(item => (
-                    <div key={item.id} className="flex items-center justify-between px-3 py-2 hover:bg-white/20 border-b border-white/30">
+                    <div key={item} className="flex items-center justify-between px-3 py-2 hover:bg-white/20 border-b border-white/30">
                       <button
                         onClick={() => {
-                          setQ(item.query);
+                          setQ(item);
                           setOpen(true);
                         }}
                         className="flex-1 text-left text-black"
                       >
-                        {item.query}
-                      </button>
-                      <button
-                        onClick={() => handleDeleteHistoryItem(item.id)}
-                        className="text-black/40 hover:text-red-500"
-                      >
-                        <X size={14} />
+                        {item}
                       </button>
                     </div>
                   ))}
@@ -331,9 +371,9 @@ export default function SearchPanel({ onSelectDestination, userPos }) {
 
           {selectedStreet && (
             <div className="p-3">
-              <div className="text-black font-bold mb-2">Выберите номер дома ({currentBuildings.length}):</div>
+              <div className="text-black font-bold mb-2">Выберите номер дома ({selectedStreet.buildings.length}):</div>
               <div className="grid grid-cols-4 sm:grid-cols-6 gap-2">
-                {currentBuildings.map(b => (
+                {sortBuildings(selectedStreet.buildings).map(b => (
                   <button
                     key={b}
                     onClick={() => handleBuildingClick(b)}
@@ -342,51 +382,7 @@ export default function SearchPanel({ onSelectDestination, userPos }) {
                     <Building2 size={13} className="text-black/60" /> {b}
                   </button>
                 ))}
-                {/* Butonul „+” pentru adăugare */}
-                <button
-                  onClick={() => setShowAddInput(true)}
-                  className="px-2 py-3 rounded-xl bg-amber-500/30 border border-amber-400 text-amber-800 font-bold hover:bg-amber-500/50 flex items-center justify-center gap-1"
-                >
-                  <Plus size={16} />
-                </button>
               </div>
-
-              {/* Input pentru adăugare număr */}
-              {showAddInput && (
-                <div className="mt-3 flex gap-2">
-                  <input
-                    ref={inputRef}
-                    type="text"
-                    value={newBuilding}
-                    onChange={(e) => setNewBuilding(e.target.value)}
-                    placeholder="Introdu numărul (ex: 68)"
-                    className="flex-1 px-3 py-2 rounded-xl bg-white/40 border border-white/50 text-black placeholder:text-black/50 outline-none"
-                    autoFocus
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') handleAddBuilding();
-                      if (e.key === 'Escape') {
-                        setShowAddInput(false);
-                        setNewBuilding('');
-                      }
-                    }}
-                  />
-                  <button
-                    onClick={handleAddBuilding}
-                    className="px-4 py-2 rounded-xl bg-amber-500 text-white font-semibold"
-                  >
-                    Adaugă
-                  </button>
-                  <button
-                    onClick={() => {
-                      setShowAddInput(false);
-                      setNewBuilding('');
-                    }}
-                    className="px-4 py-2 rounded-xl bg-white/40 border border-white/50 text-black"
-                  >
-                    Anulează
-                  </button>
-                </div>
-              )}
             </div>
           )}
         </div>
