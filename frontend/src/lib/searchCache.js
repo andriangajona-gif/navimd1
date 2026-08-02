@@ -3,10 +3,22 @@
  * Caches full addresses (street + building number) in localStorage
  */
 
-import { setGeocodeCache, getCachedGeocode, isValidCoord } from './geocodeCache';
+import { setGeocodeCache, getCachedGeocode } from './geocodeCache';
 
 const CACHE_KEY = 'search_cache_addresses';
 const MAX_CACHE_SIZE = 100;
+
+/**
+ * Validate coordinates before caching
+ */
+function isValidCoord(lat, lon) {
+  if (!lat || !lon || typeof lat !== 'number' || typeof lon !== 'number') return false;
+  const minLat = 46.9;
+  const maxLat = 47.1;
+  const minLon = 28.7;
+  const maxLon = 28.95;
+  return lat >= minLat && lat <= maxLat && lon >= minLon && lon <= maxLon;
+}
 
 /**
  * Initialize cache from localStorage
@@ -30,18 +42,6 @@ export function getCache() {
     console.warn('Failed to read cache:', err);
     return [];
   }
-}
-
-/**
- * Validate coordinates before caching
- */
-function isValidCoord(lat, lon) {
-  if (!lat || !lon || typeof lat !== 'number' || typeof lon !== 'number') return false;
-  const minLat = 46.9;
-  const maxLat = 47.1;
-  const minLon = 28.7;
-  const maxLon = 28.95;
-  return lat >= minLat && lat <= maxLat && lon >= minLon && lon <= maxLon;
 }
 
 /**
