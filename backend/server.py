@@ -33,6 +33,30 @@ logger = logging.getLogger(__name__)
 
 http_client: Optional[httpx.AsyncClient] = None
 
+# Street name mappings for API responses
+STREET_NAME_MAPPING = {
+    'Strada 9 Mai': 'str. 9 Mai',
+    'Strada Alexandru Donnici': 'str. Alexandru Donnici',
+    'Strada Constantin Stamati': 'str. Constantin Stamati',
+    'Strada Boris Glavan': 'str. Boris Glavan',
+    'Strada Libertății': 'str. Libertății',
+}
+
+# Reverse mapping for API responses
+STREET_REVERSE_MAPPING = {v: k for k, v in STREET_NAME_MAPPING.items()}
+
+def normalize_street_name(name: str) -> str:
+    """Normalize street name for comparison (handles both formats)"""
+    if not name:
+        return ''
+    # Try reverse mapping first (API format to display format)
+    if name in STREET_REVERSE_MAPPING:
+        name = STREET_REVERSE_MAPPING[name]
+    # Try forward mapping (display format to API format)
+    if name in STREET_NAME_MAPPING:
+        name = STREET_NAME_MAPPING[name]
+    return name.lower().strip()
+
 @app.on_event('startup')
 async def _startup():
     global http_client
@@ -78,6 +102,8 @@ async def search(
     lang: str = Query('ro'),
 ):
     url = f'{MAPMD_BASE}/search_street'
+    # Normalize query to API format
+    query_normalized = normalize_street_name(q)
     params = {'q': q, 'location': location, 'lang': lang}
     auth = (MAPMD_API_KEY, '')
     try:
@@ -88,6 +114,14 @@ async def search(
         data = r.json()
         if not isinstance(data, list):
             data = []
+        
+        # Normalize street names in results
+        for item in data:
+            if isinstance(item, dict) and item.get('name'):
+                api_name = item.get('name')
+                if api_name in STREET_REVERSE_MAPPING:
+                    item['name'] = STREET_REVERSE_MAPPING[api_name]
+        
         loc_low = location.lower()
         prio = [it for it in data if isinstance(it, dict) and loc_low in (it.get('parent_name') or '').lower()]
         rest = [it for it in data if it not in prio]
@@ -104,7 +138,9 @@ async def get_buildings(
     lang: str = Query('ro'),
 ):
     url = f'{MAPMD_BASE}/search_street'
-    params = {'q': street_name, 'location': city, 'lang': lang}
+    # Convert display name to API format for search
+    api_street_name = STREET_NAME_MAPPING.get(street_name, street_name)
+    params = {'q': api_street_name, 'location': city, 'lang': lang}
     auth = (MAPMD_API_KEY, '')
     try:
         r = await http_client.get(url, params=params, auth=auth)
@@ -114,27 +150,32 @@ async def get_buildings(
         data = r.json()
         if not isinstance(data, list):
             return {'buildings': []}
+        
+        # Match using normalized names
+        street_normalized = normalize_street_name(street_name)
         for item in data:
-            if item.get('type') == 'street' and item.get('name', '').lower() == street_name.lower():
-                buildings = item.get('buildings', [])
+            if item.get('type') == 'street':
+                item_name_normalized = normalize_street_name(item.get('name', ''))
+                if item_name_normalized == street_normalized:
+                    buildings = item.get('buildings', [])
 
-                def building_key(x: str):
-                    # normalize building like "12/3" => number 12, fallback to lexical
-                    first = x.split('/')[0]
+                    def building_key(x: str):
+                        # normalize building like "12/3" => number 12, fallback to lexical
+                        first = x.split('/')[0]
+                        try:
+                            num = int(first)
+                            # numeric group first so numeric values sort before non-numeric
+                            return (0, num, x)
+                        except Exception:
+                            return (1, first.lower(), x)
+
                     try:
-                        num = int(first)
-                        # numeric group first so numeric values sort before non-numeric
-                        return (0, num, x)
+                        buildings.sort(key=building_key)
                     except Exception:
-                        return (1, first.lower(), x)
-
-                try:
-                    buildings.sort(key=building_key)
-                except Exception:
-                    # don't break API if sorting fails for unexpected formats
-                    logger.exception('Failed to sort buildings list')
-                    pass
-                return {'buildings': buildings}
+                        # don't break API if sorting fails for unexpected formats
+                        logger.exception('Failed to sort buildings list')
+                        pass
+                    return {'buildings': buildings}
         return {'buildings': []}
     except Exception as e:
         logger.exception('buildings error')
@@ -149,8 +190,10 @@ async def geocode(
     lang: str = Query('ro'),
 ):
     try:
+        # Convert display name to API format for Nominatim query
+        api_street = STREET_NAME_MAPPING.get(street, street)
         url = 'https://nominatim.openstreetmap.org/search'
-        query = f'{building} {street}, {city}, Moldova'
+        query = f'{building} {api_street}, {city}, Moldova'
         params = {
             'q': query,
             'format': 'json',
@@ -161,9 +204,12 @@ async def geocode(
         r = await http_client.get(url, params=params, headers=headers)
         data = r.json() if r.status_code == 200 else []
         if data and len(data) > 0:
+            logger.info(f'geocode match for {building} {api_street}: lat={data[0]["lat"]}, lon={data[0]["lon"]}')
             return {'lat': float(data[0]['lat']), 'lon': float(data[0]['lon'])}
+        logger.warning(f'geocode no match for {building} {api_street}')
         return {'lat': None, 'lon': None}
     except Exception as e:
+        logger.exception('geocode error')
         raise HTTPException(status_code=500, detail=str(e))
 
 
