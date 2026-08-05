@@ -206,7 +206,7 @@ export default function NavigatorApp() {
       center: DEFAULT_CENTER,
       zoom: 17,
       minZoom: 6,
-      maxZoom: 17,
+      maxZoom: 20, // ✅ Increased from 17 to 20 for maximum zoom
       attributionControl: false,
       pitchWithRotate: false,
       dragRotate: true,
@@ -230,7 +230,8 @@ export default function NavigatorApp() {
             14, 11,
             16, 22,
             17, 32,
-            18, 42
+            18, 42,
+            20, 60, // ✅ Added larger text size for max zoom
           ]);
           map.setLayoutProperty(layerId, 'text-font', ["Metropolis Bold"]);
           map.setLayoutProperty(layerId, 'text-allow-overlap', true);
@@ -374,7 +375,7 @@ export default function NavigatorApp() {
       const bearing = compass ?? filteredUserPos.heading ?? 0;
       map.easeTo({
         center: [displayPos.lon, displayPos.lat], 
-        zoom: 17,
+        zoom: 20, // ✅ Maximum zoom during navigation
         bearing: isNaN(bearing) ? 0 : bearing,
         pitch: 0,
         duration: 400,
@@ -434,6 +435,7 @@ export default function NavigatorApp() {
     const el = document.createElement('div');
     el.className = 'dest-marker';
     el.innerHTML = '<svg width="28" height="36" viewBox="0 0 24 32" fill="currentColor"><path d="M12 0C5.4 0 0 5.4 0 12c0 8.4 12 20 12 20s12-11.6 12-20C24 5.4 18.6 0 12 0zm0 16c-2.2 0-4-1.8-4-4s1.8-4 4-4 4 1.8 4 4-1.8 4-4 4z"/></svg>';
+    el.style.color = '#ef4444';
     destMarkerRef.current = new maplibregl.Marker({ element: el, anchor: 'bottom' })
       .setLngLat([dest.lon, dest.lat]).addTo(map);
 
@@ -469,7 +471,7 @@ export default function NavigatorApp() {
       }
       map.easeTo({
         center: [rawUserPos.lon, rawUserPos.lat], 
-        zoom: 17,
+        zoom: 20, // ✅ Start with maximum zoom for detailed view
         bearing: compass ?? rawUserPos.heading ?? 0,
         pitch: 0,
         duration: 700,
@@ -535,7 +537,7 @@ export default function NavigatorApp() {
   const recenter = () => {
     if (filteredUserPos && mapRef.current) {
       const pos = snapPointRef.current || filteredUserPos;
-      mapRef.current.flyTo({ center: [pos.lon, pos.lat], zoom: 17, duration: 600 });
+      mapRef.current.flyTo({ center: [pos.lon, pos.lat], zoom: 20, duration: 600 }); // ✅ Maximum zoom on recenter
       setFollowing(true);
     }
   };
