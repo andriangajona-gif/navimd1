@@ -3,7 +3,7 @@ import maplibregl from 'maplibre-gl';
 import { STYLE_URL, getRoute, haversine } from '../lib/api';
 import SearchPanel from './SearchPanel';
 import NavigationPanel from './NavigationPanel';
-import { Locate } from 'lucide-react';
+import { Locate, Moon, Sun } from 'lucide-react';
 
 // ===== FILTRU KALMAN =====
 class KalmanFilter1D {
@@ -204,6 +204,7 @@ export default function NavigatorApp() {
   // Weather state: today + tomorrow (2 days)
   const [weather, setWeather] = useState(null);
   const [showWeatherPanel, setShowWeatherPanel] = useState(false);
+  const [forceNight, setForceNight] = useState(null); // null = auto
 
   const [currentTime, setCurrentTime] = useState(new Date());
   useEffect(() => {
@@ -213,6 +214,12 @@ export default function NavigatorApp() {
     return () => clearInterval(interval);
   }, []);
   const formattedTime = currentTime.toLocaleTimeString('ro-RO', { hour: '2-digit', minute: '2-digit', hour12: false });
+
+  // Determine night mode: either forced by user or auto (local time)
+  const isNight = forceNight !== null ? forceNight : (() => {
+    const h = currentTime.getHours();
+    return h < 6 || h >= 19;
+  })();
 
   // Fetch weather when we have a position (or fallback to center)
   useEffect(() => {
@@ -301,4 +308,377 @@ export default function NavigatorApp() {
     return () => window.removeEventListener('deviceorientation', handler, true);
   }, []);
 
-  // ===== ELIMINAT PUNCTUL ALB DIN INTERIOR =====n
+  // ===== ELIMINAT PUNCTUL ALB DIN INTERIOR =====
+  const updateUserMarker = useCallback((lat, lon) => {
+    if (!mapReady || !mapRef.current) return;
+    const map = mapRef.current;
+    if (!userMarkerRef.current) {
+      const el = document.createElement('div');
+      el.className = 'user-dot';
+      // NU mai creăm elementul 'core' (punctul alb)
+      userMarkerRef.current = new maplibregl.Marker({ element: el, anchor: 'center' })
+        .setLngLat([lon, lat])
+        .addTo(map);
+    } else {
+      userMarkerRef.current.setLngLat([lon, lat]);
+    }
+  }, [mapReady]);
+
+  useEffect(() => {
+    if (!('geolocation' in navigator)) return;
+    
+    const onPos = (pos) => {
+      const { latitude, longitude, heading, accuracy, speed } = pos.coords;
+      const now = Date.now();
+      if (now - lastUpdateTimeRef.current < 100) return;
+      lastUpdateTimeRef.current = now;
+      
+      const filtered = kalmanFilterRef.current.update(latitude, longitude);
+      setRawUserPos({ lat: latitude, lon: longitude, heading, accuracy, speed });
+      setFilteredUserPos({ lat: filtered.lat, lon: filtered.lon, heading, accuracy, speed });
+      
+      if (firstPositionRef.current && mapRef.current) {
+        firstPositionRef.current = false;
+        const map = mapRef.current;
+        map.flyTo({
+          center: [filtered.lon, filtered.lat],
+          zoom: 17,
+          duration: 1200,
+        });
+        setFollowing(true);
+      }
+      
+      if (navStarted && routeGeomRef.current && filtered) {
+        const coords = routeGeomRef.current;
+        if (coords.length >= 2) {
+          const { point, distance } = findClosestPointOnRoute(filtered.lat, filtered.lon, coords);
+          if (distance < 30) {
+            snapPointRef.current = { lat: point[1], lon: point[0], distance };
+            updateUserMarker(point[1], point[0]);
+          } else {
+            snapPointRef.current = null;
+            updateUserMarker(filtered.lat, filtered.lon);
+          }
+        } else {
+          updateUserMarker(filtered.lat, filtered.lon);
+        }
+      } else if (filtered) {
+        updateUserMarker(filtered.lat, filtered.lon);
+      }
+    };
+
+    const onErr = (e) => {
+      console.warn('geoloc err', e.message);
+      setError('Nu s-a putut obține geolocația.');
+    };
+
+    const options = {
+      enableHighAccuracy: true,
+      maximumAge: 500,
+      timeout: 5000,
+    };
+
+    navigator.geolocation.getCurrentPosition(onPos, onErr, options);
+    watchIdRef.current = navigator.geolocation.watchPosition(onPos, onErr, options);
+    
+    return () => { 
+      if (watchIdRef.current) navigator.geolocation.clearWatch(watchIdRef.current); 
+    };
+  }, [navStarted, updateUserMarker]);
+
+  useEffect(() => {
+    const wl = wakeLockManagerRef.current;
+    if (navStarted) wl.acquire();
+    else wl.release();
+    return () => { wl.release(); };
+  }, [navStarted]);
+
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      const wl = wakeLockManagerRef.current;
+      if (document.visibilityState === 'visible' && navStarted) wl.acquire();
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+  }, [navStarted]);
+
+  useEffect(() => {
+    if (!mapReady || !filteredUserPos) return;
+    const map = mapRef.current;
+    if (!map) return;
+
+    const displayPos = snapPointRef.current || filteredUserPos;
+    if (!displayPos) return;
+
+    if (following && navStarted && route) {
+      const bearing = compass ?? filteredUserPos.heading ?? 0;
+      map.easeTo({
+        center: [displayPos.lon, displayPos.lat], 
+        zoom: 17, // ✅ Stable zoom
+        bearing: isNaN(bearing) ? 0 : bearing,
+        pitch: 0,
+        duration: 400,
+        padding: { top: 280, bottom: 150, left: 0, right: 0 },
+      });
+    } else if (following && route) {
+      map.easeTo({ 
+        center: [displayPos.lon, displayPos.lat], 
+        zoom: 17,
+        bearing: 0,
+        pitch: 0,
+        duration: 500 
+      });
+    }
+  }, [filteredUserPos, mapReady, following, route, navStarted, compass]);
+
+  useEffect(() => {
+    if (!filteredUserPos || !routeGeomRef.current || !navStarted) return;
+    const fullCoords = routeGeomRef.current;
+    if (fullCoords.length < 2) return;
+    const pos = snapPointRef.current || filteredUserPos;
+    if (!pos) return;
+    const { index, point } = findClosestPointOnRoute(pos.lat, pos.lon, fullCoords);
+    const newCoords = [point, ...fullCoords.slice(index + 1)];
+    setRouteCoords(newCoords);
+  }, [filteredUserPos, navStarted]);
+
+  const drawRoute = useCallback((geo) => {
+    routeGeomRef.current = geo.coordinates;
+    setRouteCoords(geo.coordinates);
+  }, []);
+
+  const resetAll = useCallback(() => {
+    if (destMarkerRef.current) { destMarkerRef.current.remove(); destMarkerRef.current = null; }
+    const map = mapRef.current;
+    if (map) {
+      map.easeTo({ pitch: 0, bearing: 0, zoom: 17, duration: 600 });
+    }
+    routeGeomRef.current = null;
+    snapPointRef.current = null;
+    setRoute(null); setRouteCoords(null); setDestination(null);
+    setCurrentStep(0); setNavStarted(false);
+    offRouteSinceRef.current = null;
+  }, []);
+
+  const clearRoute = useCallback(() => {
+    resetAll();
+  }, [resetAll]);
+
+  const handleSelectDestination = useCallback(async (dest, useCustom = false) => {
+    setError(null);
+    if (!rawUserPos) { setError('Aștept semnal GPS.'); return; }
+    setDestination(dest);
+    const map = mapRef.current;
+    if (destMarkerRef.current) destMarkerRef.current.remove();
+    
+    const el = document.createElement('div');
+    el.className = 'dest-marker';
+    el.innerHTML = '<svg width="28" height="36" viewBox="0 0 24 32" fill="currentColor"><path d="M12 0C5.4 0 0 5.4 0 12c0 8.4 12 20 12 20s12-11.6 12-20C24 5.4 18.6 0 12 0zm0 16c-2.2 0-4-1.8-4-4s1[...]';
+    el.style.color = '#ef4444';
+    destMarkerRef.current = new maplibregl.Marker({ element: el, anchor: 'bottom' })
+      .setLngLat([dest.lon, dest.lat]).addTo(map);
+
+    try {
+      const r = await getRoute(rawUserPos.lat, rawUserPos.lon, dest.lat, dest.lon, profile);
+      setRoute(r); setCurrentStep(0); setNavStarted(false);
+      drawRoute(r.geometry);
+      const coords = r.geometry.coordinates;
+      const bounds = coords.reduce((b, c) => b.extend(c), new maplibregl.LngLatBounds(coords[0], coords[0]));
+      map.fitBounds(bounds, { 
+        padding: { top: 120, bottom: 240, left: 40, right: 40 }, 
+        maxZoom: 17,
+        duration: 800 
+      });
+      setFollowing(false);
+    } catch (e) {
+      setError('Nu s-a putut construi ruta.');
+    }
+  }, [rawUserPos, drawRoute, profile]);
+
+  const startNavigation = useCallback(() => {
+    if (!route || !rawUserPos) return;
+    setNavStarted(true);
+    setFollowing(true);
+    offRouteSinceRef.current = null;
+    const map = mapRef.current;
+    if (map) {
+      if (routeGeomRef.current) {
+        const pos = snapPointRef.current || { lat: rawUserPos.lat, lon: rawUserPos.lon };
+        const { index, point } = findClosestPointOnRoute(pos.lat, pos.lon, routeGeomRef.current);
+        const newCoords = [point, ...routeGeomRef.current.slice(index + 1)];
+        setRouteCoords(newCoords);
+      }
+      map.easeTo({
+        center: [rawUserPos.lon, rawUserPos.lat], 
+        zoom: 17, // ✅ Stable zoom
+        bearing: compass ?? rawUserPos.heading ?? 0,
+        pitch: 0,
+        duration: 700,
+        padding: { top: 280, bottom: 150, left: 0, right: 0 },
+      });
+    }
+  }, [route, rawUserPos, compass]);
+
+  useEffect(() => {
+    if (!route || !filteredUserPos || !navStarted) return;
+    const pos = snapPointRef.current || filteredUserPos;
+    if (!pos) return;
+
+    const steps = route.steps || [];
+    let nextIdx = currentStep;
+    for (let i = currentStep; i < steps.length; i++) {
+      const loc = steps[i].location;
+      if (!loc) continue;
+      const d = haversine(pos.lat, pos.lon, loc[1], loc[0]);
+      if (d < 25 && i + 1 < steps.length) nextIdx = i + 1;
+    }
+    if (nextIdx !== currentStep) setCurrentStep(nextIdx);
+
+    const coords = route.geometry?.coordinates || [];
+    const distOff = distToRouteMeters(pos.lat, pos.lon, coords);
+    const now = Date.now();
+    
+    if (distOff > 35) {
+      if (offRouteSinceRef.current == null) offRouteSinceRef.current = now;
+      const elapsed = now - offRouteSinceRef.current;
+      const canReroute = now - lastReroutedAtRef.current > 6000;
+      if (elapsed > 2000 && canReroute && destination && !rerouting) {
+        lastReroutedAtRef.current = now;
+        offRouteSinceRef.current = null;
+        setRerouting(true);
+        getRoute(pos.lat, pos.lon, destination.lat, destination.lon, profile)
+          .then((r) => { 
+            setRoute(r); 
+            setCurrentStep(0); 
+            drawRoute(r.geometry);
+            if (routeGeomRef.current) {
+              const { point } = findClosestPointOnRoute(pos.lat, pos.lon, routeGeomRef.current);
+              snapPointRef.current = { lat: point[1], lon: point[0], distance: 0 };
+            }
+          })
+          .catch(() => {})
+          .finally(() => setRerouting(false));
+      }
+    } else {
+      offRouteSinceRef.current = null;
+    }
+    
+    if (destination) {
+      const dArr = haversine(pos.lat, pos.lon, destination.lat, destination.lon);
+      if (dArr < 20) {
+        setTimeout(() => {
+          resetAll();
+        }, 2000);
+      }
+    }
+  }, [filteredUserPos, route, currentStep, destination, navStarted, profile, drawRoute, rerouting, resetAll]);
+
+  const recenter = () => {
+    if (filteredUserPos && mapRef.current) {
+      const pos = snapPointRef.current || filteredUserPos;
+      mapRef.current.flyTo({ center: [pos.lon, pos.lat], zoom: 17, duration: 600 }); // ✅ Stable zoom
+      setFollowing(true);
+    }
+  };
+
+  const weatherBadgeClass = isNight
+    ? 'bg-black/60 text-white border border-white/20'
+    : 'bg-white/20 text-black border border-white/30';
+
+  return (
+    <div className="App" style={{ position: 'relative' }}>
+      <div ref={mapContainerRef} className="absolute inset-0" />
+      {mapInstance && routeCoords && (
+        <RouteOverlay routeCoords={routeCoords} map={mapInstance} />
+      )}
+      {!route && (
+        <SearchPanel
+          onSelectDestination={handleSelectDestination}
+          userPos={rawUserPos}
+        />
+      )}
+
+      {/* Clock + compact weather (z-20 so SearchPanel with z-30 stays above) */}
+      <div className="absolute top-3 right-3 z-20 flex flex-col items-end gap-2">
+        <div className={`rounded-full px-4 py-2 shadow-md min-w-[70px] text-center ${isNight ? 'bg-black/70 border border-white/10' : 'bg-white/30 border border-white/40'}`}>
+          <span className={`font-mono text-xl font-bold ${isNight ? 'text-white' : 'text-black'}`}>{formattedTime}</span>
+        </div>
+
+        <div className={`rounded-2xl px-3 py-2 flex items-center gap-3 ${weatherBadgeClass}`}>
+          {/* icon + 2-day summary */}
+          {weather ? (
+            <div className="flex items-center gap-3">
+              <div className={`w-10 h-10 rounded-lg flex items-center justify-center text-lg ${isNight ? 'bg-white/8' : 'bg-white/80'}`}>
+                <span className="text-2xl">{weatherCodeToIcon(weather.daily.weathercode?.[0])}</span>
+              </div>
+              <div className="flex flex-col leading-none">
+                <div className={`text-[12px] ${isNight ? 'text-white/80' : 'text-black/70'}`}>{new Date(weather.daily.time[0]).toLocaleDateString('ro-RO', { weekday: 'short' })}</div>
+                <div className={`font-semibold ${isNight ? 'text-white' : 'text-black'}`}>{Math.round(weather.daily.temperature_2m_max[0])}° / <span className={`${isNight ? 'text-white/70' : 'text-black/60'}`}>{Math.round(weather.daily.temperature_2m_min[0])}°</span></div>
+              </div>
+            </div>
+          ) : (
+            <div className={`text-sm ${isNight ? 'text-white/60' : 'text-black/60'}`}>Se încarcă prognoza…</div>
+          )}
+
+          {/* toggle panel (bottom compact) */}
+          <div className="ml-2 flex flex-col items-end gap-1">
+            <button
+              onClick={() => setShowWeatherPanel(v => !v)}
+              className={`px-2 py-1 rounded-full ${isNight ? 'bg-white/10 text-white' : 'bg-white/70 text-black'}`}
+              aria-expanded={showWeatherPanel}
+              title="Detalii meteo">
+              {showWeatherPanel ? '▴' : '▾'}
+            </button>
+            <button
+              onClick={() => setForceNight(prev => prev === null ? !isNight : (prev ? null : true))}
+              className={`mt-1 p-1 rounded-full ${isNight ? 'bg-white/10 text-white' : 'bg-white/70 text-black'}`}
+              title="Toggle night mode">
+              {isNight ? <Moon size={14} /> : <Sun size={14} />}
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Bottom-center expanded weather panel (z-20 under SearchPanel) */}
+      {showWeatherPanel && (
+        <div className={`absolute left-1/2 transform -translate-x-1/2 bottom-6 z-20 ${isNight ? 'bg-black/70 text-white border border-white/10' : 'bg-white/30 text-black border border-white/40'} rounded-xl p-3 shadow-md`}>
+          {weather ? (
+            <div className="flex gap-6 items-center">
+              {weather.daily.time.map((d, i) => (
+                <div key={d} className="text-center">
+                  <div className="text-xs font-semibold">{i === 0 ? 'Azi' : 'Mâine'}</div>
+                  <div className="text-3xl my-1">{weatherCodeToIcon(weather.daily.weathercode[i])}</div>
+                  <div className="text-sm">{Math.round(weather.daily.temperature_2m_max[i])}° / <span className="text-black/60 dark:text-white/60">{Math.round(weather.daily.temperature_2m_min[i])}°</span></div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="text-sm">Se încarcă prognoza…</div>
+          )}
+        </div>
+      )}
+
+      <div className="absolute right-3 bottom-48 z-30 flex flex-col gap-2">
+        <button
+          onClick={recenter}
+          className="w-11 h-11 rounded-full bg-white/30 backdrop-blur-sm border border-white/40 shadow-md flex items-center justify-center text-black/80 active:scale-95 transition-transform"
+        >
+          <Locate size={20} />
+        </button>
+      </div>
+
+      {route && (
+        <NavigationPanel
+          route={route}
+          currentStep={currentStep}
+          destination={destination}
+          onCancel={clearRoute}
+          onFinish={clearRoute}
+          navStarted={navStarted}
+          onStart={startNavigation}
+          rerouting={rerouting}
+        />
+      )}
+    </div>
+  );
+}
