@@ -159,6 +159,18 @@ function RouteOverlay({ routeCoords, map }) {
   );
 }
 
+function weatherCodeToIcon(code) {
+  if (code == null) return '❓';
+  if (code === 0) return '☀️';
+  if (code === 1 || code === 2) return '🌤️';
+  if (code === 3) return '☁️';
+  if (code === 45 || code === 48) return '🌫️';
+  if ((code >= 51 && code <= 67) || (code >= 80 && code <= 82)) return '🌧️';
+  if (code >= 71 && code <= 77) return '❄️';
+  if (code >= 95) return '⛈️';
+  return '❓';
+}
+
 export default function NavigatorApp() {
   const mapContainerRef = useRef(null);
   const mapRef = useRef(null);
@@ -191,6 +203,7 @@ export default function NavigatorApp() {
 
   // Weather state: today + tomorrow (2 days)
   const [weather, setWeather] = useState(null);
+  const [showWeatherPanel, setShowWeatherPanel] = useState(false);
 
   const [currentTime, setCurrentTime] = useState(new Date());
   useEffect(() => {
@@ -206,7 +219,7 @@ export default function NavigatorApp() {
     let cancelled = false;
     const lat = filteredUserPos?.lat ?? rawUserPos?.lat ?? DEFAULT_CENTER[1];
     const lon = filteredUserPos?.lon ?? rawUserPos?.lon ?? DEFAULT_CENTER[0];
-    const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&daily=temperature_2m_max,temperature_2m_min,precipitation_sum&timezone=auto&forecast_days=2`;
+    const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&daily=weathercode,temperature_2m_max,temperature_2m_min,precipitation_sum&timezone=auto&forecast_days=2`;
 
     fetch(url)
       .then((r) => r.json())
@@ -458,165 +471,4 @@ export default function NavigatorApp() {
     destMarkerRef.current = new maplibregl.Marker({ element: el, anchor: 'bottom' })
       .setLngLat([dest.lon, dest.lat]).addTo(map);
 
-    try {
-      const r = await getRoute(rawUserPos.lat, rawUserPos.lon, dest.lat, dest.lon, profile);
-      setRoute(r); setCurrentStep(0); setNavStarted(false);
-      drawRoute(r.geometry);
-      const coords = r.geometry.coordinates;
-      const bounds = coords.reduce((b, c) => b.extend(c), new maplibregl.LngLatBounds(coords[0], coords[0]));
-      map.fitBounds(bounds, { 
-        padding: { top: 120, bottom: 240, left: 40, right: 40 }, 
-        maxZoom: 17,
-        duration: 800 
-      });
-      setFollowing(false);
-    } catch (e) {
-      setError('Nu s-a putut construi ruta.');
-    }
-  }, [rawUserPos, drawRoute, profile]);
-
-  const startNavigation = useCallback(() => {
-    if (!route || !rawUserPos) return;
-    setNavStarted(true);
-    setFollowing(true);
-    offRouteSinceRef.current = null;
-    const map = mapRef.current;
-    if (map) {
-      if (routeGeomRef.current) {
-        const pos = snapPointRef.current || { lat: rawUserPos.lat, lon: rawUserPos.lon };
-        const { index, point } = findClosestPointOnRoute(pos.lat, pos.lon, routeGeomRef.current);
-        const newCoords = [point, ...routeGeomRef.current.slice(index + 1)];
-        setRouteCoords(newCoords);
-      }
-      map.easeTo({
-        center: [rawUserPos.lon, rawUserPos.lat], 
-        zoom: 17, // ✅ Stable zoom
-        bearing: compass ?? rawUserPos.heading ?? 0,
-        pitch: 0,
-        duration: 700,
-        padding: { top: 280, bottom: 150, left: 0, right: 0 },
-      });
-    }
-  }, [route, rawUserPos, compass]);
-
-  useEffect(() => {
-    if (!route || !filteredUserPos || !navStarted) return;
-    const pos = snapPointRef.current || filteredUserPos;
-    if (!pos) return;
-
-    const steps = route.steps || [];
-    let nextIdx = currentStep;
-    for (let i = currentStep; i < steps.length; i++) {
-      const loc = steps[i].location;
-      if (!loc) continue;
-      const d = haversine(pos.lat, pos.lon, loc[1], loc[0]);
-      if (d < 25 && i + 1 < steps.length) nextIdx = i + 1;
-    }
-    if (nextIdx !== currentStep) setCurrentStep(nextIdx);
-
-    const coords = route.geometry?.coordinates || [];
-    const distOff = distToRouteMeters(pos.lat, pos.lon, coords);
-    const now = Date.now();
-    
-    if (distOff > 35) {
-      if (offRouteSinceRef.current == null) offRouteSinceRef.current = now;
-      const elapsed = now - offRouteSinceRef.current;
-      const canReroute = now - lastReroutedAtRef.current > 6000;
-      if (elapsed > 2000 && canReroute && destination && !rerouting) {
-        lastReroutedAtRef.current = now;
-        offRouteSinceRef.current = null;
-        setRerouting(true);
-        getRoute(pos.lat, pos.lon, destination.lat, destination.lon, profile)
-          .then((r) => { 
-            setRoute(r); 
-            setCurrentStep(0); 
-            drawRoute(r.geometry);
-            if (routeGeomRef.current) {
-              const { point } = findClosestPointOnRoute(pos.lat, pos.lon, routeGeomRef.current);
-              snapPointRef.current = { lat: point[1], lon: point[0], distance: 0 };
-            }
-          })
-          .catch(() => {})
-          .finally(() => setRerouting(false));
-      }
-    } else {
-      offRouteSinceRef.current = null;
-    }
-    
-    if (destination) {
-      const dArr = haversine(pos.lat, pos.lon, destination.lat, destination.lon);
-      if (dArr < 20) {
-        setTimeout(() => {
-          resetAll();
-        }, 2000);
-      }
-    }
-  }, [filteredUserPos, route, currentStep, destination, navStarted, profile, drawRoute, rerouting, resetAll]);
-
-  const recenter = () => {
-    if (filteredUserPos && mapRef.current) {
-      const pos = snapPointRef.current || filteredUserPos;
-      mapRef.current.flyTo({ center: [pos.lon, pos.lat], zoom: 17, duration: 600 }); // ✅ Stable zoom
-      setFollowing(true);
-    }
-  };
-
-  return (
-    <div className="App" style={{ position: 'relative' }}>
-      <div ref={mapContainerRef} className="absolute inset-0" />
-      {mapInstance && routeCoords && (
-        <RouteOverlay routeCoords={routeCoords} map={mapInstance} />
-      )}
-      {!route && (
-        <SearchPanel
-          onSelectDestination={handleSelectDestination}
-          userPos={rawUserPos}
-        />
-      )}
-
-      <div className="absolute top-3 right-3 z-40 flex flex-col items-end gap-2">
-        <div className="bg-white/30 backdrop-blur-sm border border-white/40 rounded-full px-4 py-2 shadow-md min-w-[70px] text-center">
-          <span className="text-black font-mono text-xl font-bold">{formattedTime}</span>
-        </div>
-
-        <div className="bg-white/20 backdrop-blur-sm border border-white/30 rounded-2xl px-3 py-2 flex gap-3 items-center">
-          {weather ? (
-            <div className="flex gap-3 items-center text-black">
-              {weather.daily.time.map((d, i) => (
-                <div key={d} className="flex flex-col items-center text-[12px]">
-                  <div className="font-semibold">{i === 0 ? 'Azi' : 'Mâine'}</div>
-                  <div className="text-[18px] font-bold">{Math.round(weather.daily.temperature_2m_max[i])}°</div>
-                  <div className="text-black/60">{Math.round(weather.daily.temperature_2m_min[i])}°</div>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div className="text-black/60 text-sm">Se încarcă prognoza…</div>
-          )}
-        </div>
-      </div>
-
-      <div className="absolute right-3 bottom-48 z-30 flex flex-col gap-2">
-        <button
-          onClick={recenter}
-          className="w-11 h-11 rounded-full bg-white/30 backdrop-blur-sm border border-white/40 shadow-md flex items-center justify-center text-black/80 active:scale-95 transition-transform"
-        >
-          <Locate size={20} />
-        </button>
-      </div>
-
-      {route && (
-        <NavigationPanel
-          route={route}
-          currentStep={currentStep}
-          destination={destination}
-          onCancel={clearRoute}
-          onFinish={clearRoute}
-          navStarted={navStarted}
-          onStart={startNavigation}
-          rerouting={rerouting}
-        />
-      )}
-    </div>
-  );
-}
+  ... (file truncated) ...
