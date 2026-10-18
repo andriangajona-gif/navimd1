@@ -202,7 +202,6 @@ export default function NavigatorApp() {
   const offRouteSinceRef = useRef(null);
 
   const [weather, setWeather] = useState(null);
-  const [showFullscreen, setShowFullscreen] = useState(false);
 
   const [currentTime, setCurrentTime] = useState(new Date());
   useEffect(() => {
@@ -408,7 +407,7 @@ export default function NavigatorApp() {
     if (following && navStarted && route) {
       const bearing = compass ?? filteredUserPos.heading ?? 0;
       map.easeTo({
-        center: [displayPos.lon, displayPos.lat],
+        center: [displayPos.lon, displayPos.lat], 
         zoom: 17,
         bearing: isNaN(bearing) ? 0 : bearing,
         pitch: 0,
@@ -416,12 +415,12 @@ export default function NavigatorApp() {
         padding: { top: 280, bottom: 150, left: 0, right: 0 },
       });
     } else if (following && route) {
-      map.easeTo({
-        center: [displayPos.lon, displayPos.lat],
+      map.easeTo({ 
+        center: [displayPos.lon, displayPos.lat], 
         zoom: 17,
         bearing: 0,
         pitch: 0,
-        duration: 500,
+        duration: 500, 
       });
     }
   }, [filteredUserPos, mapReady, following, route, navStarted, compass]);
@@ -593,69 +592,29 @@ export default function NavigatorApp() {
         />
       )}
 
-      {/* Small clickable card that expands to fullscreen glass */}
-      <div className="absolute bottom-4 left-4 z-10 pointer-events-none">
-        <div
-          onClick={() => setShowFullscreen(true)}
-          className={`pointer-events-auto cursor-pointer w-[250px] rounded-2xl px-3 py-2.5 shadow-lg border backdrop-blur-sm transition-transform hover:scale-[1.01] ${
-            isNight ? 'bg-black/60 text-white border-white/10' : 'bg-white/20 text-black border-white/40'
-          }`}
-        >
-          <div className="flex items-center justify-between gap-3">
-            <div className="flex items-center gap-3">
-              <div className={`flex h-10 w-10 items-center justify-center rounded-xl text-xl ${isNight ? 'bg-white/10' : 'bg-white/70'}`}>
-                {weather ? weatherCodeToIcon(weather.daily.weathercode?.[0]) : '⏳'}
-              </div>
-
-              <div className="flex flex-col leading-none">
-                <span className="text-[9px] uppercase tracking-wide opacity-70">Azi</span>
-                <span className="text-lg font-bold">
-                  {weather ? `${Math.round(weather.daily.temperature_2m_max[0])}°` : '--°'}
-                </span>
-              </div>
+      {/* Minimal horizontal glass bar with large clock */}
+      <div className="absolute left-4 right-4 bottom-4 z-10 pointer-events-none">
+        <div className={`pointer-events-auto mx-auto w-full max-w-[1050px] rounded-2xl px-6 py-3 shadow-lg border backdrop-blur-sm flex items-center justify-between ${
+          isNight ? 'bg-black/55 text-white border-white/10' : 'bg-white/30 text-black border-white/30'
+        }`}>
+          <div className="flex items-center gap-4">
+            <div className={`rounded-lg h-10 w-10 flex items-center justify-center text-xl ${isNight ? 'bg-white/06' : 'bg-white/70'}`}>
+              {weather ? weatherCodeToIcon(weather.daily.weathercode?.[0]) : '⏳'}
             </div>
+            <div className="text-sm opacity-80">Azi</div>
+          </div>
 
-            <div className="flex flex-col items-end">
-              <span className="text-3xl font-extrabold tracking-tight">{formattedTime}</span>
-            </div>
+          <div className="flex-1 text-center">
+            <div className="text-5xl font-extrabold tracking-tight">{formattedTime}</div>
+          </div>
+
+          <div className="flex items-center gap-4 opacity-90">
+            {weather && (
+              <div className="text-sm">{Math.round(weather.daily.temperature_2m_max[0])}°</div>
+            )}
           </div>
         </div>
       </div>
-
-      {/* Fullscreen glass overlay */}
-      {showFullscreen && (
-        <div className="absolute inset-0 z-40 pointer-events-auto flex items-center justify-center">
-          <div
-            className={`absolute inset-0 backdrop-blur-xl transition-opacity ${isNight ? 'bg-black/60' : 'bg-white/30'}`} 
-            onClick={() => setShowFullscreen(false)}
-          />
-
-          <div className={`relative z-50 max-w-[1100px] w-[92%] h-[88%] rounded-3xl p-8 shadow-2xl overflow-auto ${isNight ? 'bg-black/40 text-white border border-white/10' : 'bg-white/30 text-black border border-white/20'}`}>
-            <div className="flex justify-between items-start">
-              <div>
-                <div className="text-6xl font-extrabold leading-tight">{formattedTime}</div>
-                <div className="mt-2 text-sm opacity-80">Prognoză pe 2 zile</div>
-              </div>
-              <button onClick={() => setShowFullscreen(false)} className="text-sm px-3 py-1 rounded-md bg-white/10">Închide</button>
-            </div>
-
-            <div className="mt-6 grid grid-cols-2 gap-6">
-              {weather ? (
-                weather.daily.time.map((d, i) => (
-                  <div key={d} className="flex flex-col items-center justify-center gap-2 p-4 rounded-xl">
-                    <div className="text-sm uppercase opacity-80">{i === 0 ? 'Azi' : 'Mâine'}</div>
-                    <div className="text-6xl">{weatherCodeToIcon(weather.daily.weathercode[i])}</div>
-                    <div className="mt-2 text-xl font-semibold">{Math.round(weather.daily.temperature_2m_max[i])}°</div>
-                    <div className="text-sm opacity-70">Min: {Math.round(weather.daily.temperature_2m_min[i])}°</div>
-                  </div>
-                ))
-              ) : (
-                <div className="col-span-2 text-center">Se încarcă prognoza…</div>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
 
       <div className="absolute right-3 bottom-48 z-30 flex flex-col gap-2">
         <button
