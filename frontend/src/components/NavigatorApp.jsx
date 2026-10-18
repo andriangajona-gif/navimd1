@@ -5,8 +5,7 @@ import SearchPanel from './SearchPanel';
 import NavigationPanel from './NavigationPanel';
 import { Locate } from 'lucide-react';
 
-// ===== FILTRU KALMAN =====
-class KalmanFilter1D {
+// ===== FILTRU KALMAN =====nclass KalmanFilter1D {
   constructor(processNoise = 0.1, measurementNoise = 2.0) {
     this.q = processNoise;
     this.r = measurementNoise;
@@ -467,7 +466,7 @@ export default function NavigatorApp() {
 
     const el = document.createElement('div');
     el.className = 'dest-marker';
-    el.innerHTML = '<svg width="28" height="36" viewBox="0 0 24 32" fill="currentColor"><path d="M12 0C5.4 0 0 5.4 0 12c0 8.4 12 20 12 20s12-11.6 12-20C24 5.4 18.6 0 12 0zm0 16c-2.2 0-4-1.8-4-4s1[...]';
+    el.innerHTML = '<svg width=\"28\" height=\"36\" viewBox=\"0 0 24 32\" fill=\"currentColor\"><path d=\"M12 0C5.4 0 0 5.4 0 12c0 8.4 12 20 12 20s12-11.6 12-20C24 5.4 18.6 0 12 0zm0 16c-2.2 0-4-1.8-4-4s1[...]\"/></svg>';
     el.style.color = '#ef4444';
     destMarkerRef.current = new maplibregl.Marker({ element: el, anchor: 'bottom' })
       .setLngLat([dest.lon, dest.lat]).addTo(map);
@@ -594,25 +593,26 @@ export default function NavigatorApp() {
 
       {/* Minimal horizontal glass bar with large clock */}
       <div className="absolute left-4 right-4 bottom-4 z-10 pointer-events-none">
-        <div className={`pointer-events-auto mx-auto w-full max-w-[1050px] rounded-2xl px-6 py-3 shadow-lg border backdrop-blur-sm flex items-center justify-between ${
-          isNight ? 'bg-black/55 text-white border-white/10' : 'bg-white/30 text-black border-white/30'
-        }`}>
-          <div className="flex items-center gap-4">
+        <div className={`pointer-events-auto mx-auto w-full max-w-[1050px] rounded-2xl px-6 py-3 shadow-lg border backdrop-blur-sm flex items-center ${isNight ? 'bg-black/55 text-white border-white/10' : 'bg-white/30 text-black border-white/30'}`}>
+          {/* left: icon + degrees (together) */}
+          <div className="flex items-center gap-2">
             <div className={`rounded-lg h-10 w-10 flex items-center justify-center text-xl ${isNight ? 'bg-white/06' : 'bg-white/70'}`}>
               {weather ? weatherCodeToIcon(weather.daily.weathercode?.[0]) : '⏳'}
             </div>
-            <div className="text-sm opacity-80">Azi</div>
-          </div>
-
-          <div className="flex-1 text-center">
-            <div className="text-5xl font-extrabold tracking-tight">{formattedTime}</div>
-          </div>
-
-          <div className="flex items-center gap-4 opacity-90">
             {weather && (
-              <div className="text-sm">{Math.round(weather.daily.temperature_2m_max[0])}°</div>
+              <div className="text-sm font-semibold">{Math.round(weather.daily.temperature_2m_max[0])}°</div>
             )}
+            <div className="text-sm opacity-80 ml-2">Azi</div>
           </div>
+
+          {/* spacer to push clock to the right */}
+          <div className="flex-1" />
+
+          {/* right: large clock */}
+          <div className="ml-auto text-right">
+            <div className="text-6xl font-extrabold tracking-tight">{formattedTime}</div>
+          </div>
+
         </div>
       </div>
 
