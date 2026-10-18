@@ -598,63 +598,43 @@ export default function NavigatorApp() {
         />
       )}
 
-      {/* Clock (top-right). Weather moved to bottom full-width */}
-      <div className="absolute top-3 right-3 z-10 pointer-events-none flex flex-col items-end gap-2">
-        <div className={`rounded-full px-4 py-2 shadow-md min-w-[70px] text-center pointer-events-auto ${isNight ? 'bg-black/70 border border-white/10' : 'bg-white/30 border border-white/40'}`}>
-          <span className={`font-mono text-xl font-bold ${isNight ? 'text-white' : 'text-black'}`}>{formattedTime}</span>
-        </div>
-      </div>
+      {/* Compact weather + clock card */}
+      <div className="absolute bottom-4 left-4 z-10 pointer-events-none">
+        <div
+          className={`pointer-events-auto w-[240px] rounded-xl px-3 py-2 shadow-lg border backdrop-blur-sm ${
+            isNight
+              ? 'bg-black/70 text-white border-white/10'
+              : 'bg-white/30 text-black border-white/40'
+          }`}
+        >
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex flex-col items-start">
+              <span className="text-[9px] uppercase tracking-wide opacity-70">Azi</span>
+              <span className="text-lg font-semibold">
+                {weather ? `${Math.round(weather.daily.temperature_2m_max[0])}°` : '--°'}
+              </span>
+            </div>
 
-      {/* Bottom full-width weather panel. Make outer pointer-events-none so it doesn't block search; inner is pointer-events-auto. */}
-      {showWeatherPanel && (
-        <div className={`absolute left-4 right-4 bottom-6 z-10 pointer-events-none ${isNight ? 'bg-black/70 text-white border border-white/10' : 'bg-white/30 text-black border border-white/40'} rounded-xl p-3 shadow-md`}>
-          <div className="pointer-events-auto w-full">
-            {weather ? (
-              <div className="flex justify-between items-center w-full">
-                {weather.daily.time.map((d, i) => (
-                  <div key={d} className="flex-1 text-center">
-                    <div className="text-xs font-semibold">{i === 0 ? 'Azi' : 'Mâine'}</div>
-                    <div className="text-3xl my-1">{weatherCodeToIcon(weather.daily.weathercode[i])}</div>
-                    <div className="text-sm">{Math.round(weather.daily.temperature_2m_max[i])}° / <span className="text-black/60 dark:text-white/60">{Math.round(weather.daily.temperature_2m_min[i])}°</span></div>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div className="text-sm">Se încarcă prognoza…</div>
-            )}
+            <div className="flex flex-col items-center">
+              <span className="text-[9px] uppercase tracking-wide opacity-70">Mâine</span>
+              <span className="text-lg font-semibold">
+                {weather ? `${Math.round(weather.daily.temperature_2m_max[1])}°` : '--°'}
+              </span>
+            </div>
 
-            {/* Controls row */}
-            <div className="mt-3 flex justify-end gap-2">
-              <button
-                onClick={() => setShowWeatherPanel(false)}
-                className={`px-3 py-1 rounded-md ${isNight ? 'bg-white/10 text-white' : 'bg-white/70 text-black'}`}
-              >
-                Închide
-              </button>
-              <button
-                onClick={() => setForceNight(prev => prev === null ? !isNight : (prev ? null : true))}
-                className={`px-3 py-1 rounded-md ${isNight ? 'bg-white/10 text-white' : 'bg-white/70 text-black'}`}
-              >
-                {isNight ? 'Noapte' : 'Zi'}
-              </button>
+            <div className="flex flex-col items-end min-w-[78px]">
+              <span className="text-[14px] font-semibold tracking-tight">
+                {formattedTime}
+              </span>
+              <span className="text-[9px] opacity-70">
+                {weather
+                  ? `${Math.round(weather.daily.temperature_2m_min[0])}° / ${Math.round(weather.daily.temperature_2m_max[0])}°`
+                  : 'Se încarcă...'}
+              </span>
             </div>
           </div>
         </div>
-      )}
-
-      {/* Small toggle button to open bottom panel (keeps top clock visible) */}
-      {!showWeatherPanel && (
-        <div className="absolute left-1/2 transform -translate-x-1/2 bottom-6 z-10 pointer-events-none">
-          <div className="pointer-events-auto">
-            <button
-              onClick={() => setShowWeatherPanel(true)}
-              className={`px-4 py-2 rounded-full ${isNight ? 'bg-black/70 text-white' : 'bg-white/30 text-black'} shadow-md border border-white/30`}
-            >
-              {weather ? `${Math.round(weather.daily.temperature_2m_max[0])}° / ${Math.round(weather.daily.temperature_2m_min[0])}°` : 'Meteo'}
-            </button>
-          </div>
-        </div>
-      )}
+      </div>
 
       <div className="absolute right-3 bottom-48 z-30 flex flex-col gap-2">
         <button
