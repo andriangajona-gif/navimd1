@@ -189,6 +189,9 @@ export default function NavigatorApp() {
   const lastReroutedAtRef = useRef(0);
   const offRouteSinceRef = useRef(null);
 
+  // Weather state: today + tomorrow (2 days)
+  const [weather, setWeather] = useState(null);
+
   const [currentTime, setCurrentTime] = useState(new Date());
   useEffect(() => {
     const interval = setInterval(() => {
@@ -197,6 +200,24 @@ export default function NavigatorApp() {
     return () => clearInterval(interval);
   }, []);
   const formattedTime = currentTime.toLocaleTimeString('ro-RO', { hour: '2-digit', minute: '2-digit', hour12: false });
+
+  // Fetch weather when we have a position (or fallback to center)
+  useEffect(() => {
+    let cancelled = false;
+    const lat = filteredUserPos?.lat ?? rawUserPos?.lat ?? DEFAULT_CENTER[1];
+    const lon = filteredUserPos?.lon ?? rawUserPos?.lon ?? DEFAULT_CENTER[0];
+    const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&daily=temperature_2m_max,temperature_2m_min,precipitation_sum&timezone=auto&forecast_days=2`;
+
+    fetch(url)
+      .then((r) => r.json())
+      .then((data) => {
+        if (cancelled) return;
+        if (data && data.daily) setWeather(data);
+      })
+      .catch(() => {});
+
+    return () => { cancelled = true; };
+  }, [filteredUserPos, rawUserPos]);
 
   useEffect(() => {
     if (mapRef.current) return;
@@ -432,7 +453,7 @@ export default function NavigatorApp() {
     
     const el = document.createElement('div');
     el.className = 'dest-marker';
-    el.innerHTML = '<svg width="28" height="36" viewBox="0 0 24 32" fill="currentColor"><path d="M12 0C5.4 0 0 5.4 0 12c0 8.4 12 20 12 20s12-11.6 12-20C24 5.4 18.6 0 12 0zm0 16c-2.2 0-4-1.8-4-4s1.8-4 4-4 4 1.8 4 4-1.8 4-4 4z"/></svg>';
+    el.innerHTML = '<svg width="28" height="36" viewBox="0 0 24 32" fill="currentColor"><path d="M12 0C5.4 0 0 5.4 0 12c0 8.4 12 20 12 20s12-11.6 12-20C24 5.4 18.6 0 12 0zm0 16c-2.2 0-4-1.8-4-4s1[...]';
     el.style.color = '#ef4444';
     destMarkerRef.current = new maplibregl.Marker({ element: el, anchor: 'bottom' })
       .setLngLat([dest.lon, dest.lat]).addTo(map);
@@ -553,8 +574,26 @@ export default function NavigatorApp() {
         />
       )}
 
-      <div className="absolute top-3 right-3 z-40 bg-white/30 backdrop-blur-sm border border-white/40 rounded-full px-4 py-2 shadow-md min-w-[70px] text-center">
-        <span className="text-black font-mono text-xl font-bold">{formattedTime}</span>
+      <div className="absolute top-3 right-3 z-40 flex flex-col items-end gap-2">
+        <div className="bg-white/30 backdrop-blur-sm border border-white/40 rounded-full px-4 py-2 shadow-md min-w-[70px] text-center">
+          <span className="text-black font-mono text-xl font-bold">{formattedTime}</span>
+        </div>
+
+        <div className="bg-white/20 backdrop-blur-sm border border-white/30 rounded-2xl px-3 py-2 flex gap-3 items-center">
+          {weather ? (
+            <div className="flex gap-3 items-center text-black">
+              {weather.daily.time.map((d, i) => (
+                <div key={d} className="flex flex-col items-center text-[12px]">
+                  <div className="font-semibold">{i === 0 ? 'Azi' : 'Mâine'}</div>
+                  <div className="text-[18px] font-bold">{Math.round(weather.daily.temperature_2m_max[i])}°</div>
+                  <div className="text-black/60">{Math.round(weather.daily.temperature_2m_min[i])}°</div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="text-black/60 text-sm">Se încarcă prognoza…</div>
+          )}
+        </div>
       </div>
 
       <div className="absolute right-3 bottom-48 z-30 flex flex-col gap-2">
