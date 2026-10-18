@@ -202,7 +202,7 @@ export default function NavigatorApp() {
   const offRouteSinceRef = useRef(null);
 
   const [weather, setWeather] = useState(null);
-  const [forceNight, setForceNight] = useState(null);
+  const [showFullscreen, setShowFullscreen] = useState(false);
 
   const [currentTime, setCurrentTime] = useState(new Date());
   useEffect(() => {
@@ -593,10 +593,12 @@ export default function NavigatorApp() {
         />
       )}
 
+      {/* Small clickable card that expands to fullscreen glass */}
       <div className="absolute bottom-4 left-4 z-10 pointer-events-none">
         <div
-          className={`pointer-events-auto w-[250px] rounded-2xl px-3 py-2.5 shadow-lg border backdrop-blur-sm ${
-            isNight ? 'bg-black/70 text-white border-white/10' : 'bg-white/30 text-black border-white/40'
+          onClick={() => setShowFullscreen(true)}
+          className={`pointer-events-auto cursor-pointer w-[250px] rounded-2xl px-3 py-2.5 shadow-lg border backdrop-blur-sm transition-transform hover:scale-[1.01] ${
+            isNight ? 'bg-black/60 text-white border-white/10' : 'bg-white/20 text-black border-white/40'
           }`}
         >
           <div className="flex items-center justify-between gap-3">
@@ -619,6 +621,41 @@ export default function NavigatorApp() {
           </div>
         </div>
       </div>
+
+      {/* Fullscreen glass overlay */}
+      {showFullscreen && (
+        <div className="absolute inset-0 z-40 pointer-events-auto flex items-center justify-center">
+          <div
+            className={`absolute inset-0 backdrop-blur-xl transition-opacity ${isNight ? 'bg-black/60' : 'bg-white/30'}`} 
+            onClick={() => setShowFullscreen(false)}
+          />
+
+          <div className={`relative z-50 max-w-[1100px] w-[92%] h-[88%] rounded-3xl p-8 shadow-2xl overflow-auto ${isNight ? 'bg-black/40 text-white border border-white/10' : 'bg-white/30 text-black border border-white/20'}`}>
+            <div className="flex justify-between items-start">
+              <div>
+                <div className="text-6xl font-extrabold leading-tight">{formattedTime}</div>
+                <div className="mt-2 text-sm opacity-80">Prognoză pe 2 zile</div>
+              </div>
+              <button onClick={() => setShowFullscreen(false)} className="text-sm px-3 py-1 rounded-md bg-white/10">Închide</button>
+            </div>
+
+            <div className="mt-6 grid grid-cols-2 gap-6">
+              {weather ? (
+                weather.daily.time.map((d, i) => (
+                  <div key={d} className="flex flex-col items-center justify-center gap-2 p-4 rounded-xl">
+                    <div className="text-sm uppercase opacity-80">{i === 0 ? 'Azi' : 'Mâine'}</div>
+                    <div className="text-6xl">{weatherCodeToIcon(weather.daily.weathercode[i])}</div>
+                    <div className="mt-2 text-xl font-semibold">{Math.round(weather.daily.temperature_2m_max[i])}°</div>
+                    <div className="text-sm opacity-70">Min: {Math.round(weather.daily.temperature_2m_min[i])}°</div>
+                  </div>
+                ))
+              ) : (
+                <div className="col-span-2 text-center">Se încarcă prognoza…</div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="absolute right-3 bottom-48 z-30 flex flex-col gap-2">
         <button
