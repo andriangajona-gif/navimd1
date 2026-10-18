@@ -3,7 +3,7 @@ import maplibregl from 'maplibre-gl';
 import { STYLE_URL, getRoute, haversine } from '../lib/api';
 import SearchPanel from './SearchPanel';
 import NavigationPanel from './NavigationPanel';
-import { Locate, Moon, Sun } from 'lucide-react';
+import { Locate } from 'lucide-react';
 
 // ===== FILTRU KALMAN =====
 class KalmanFilter1D {
@@ -202,7 +202,6 @@ export default function NavigatorApp() {
   const offRouteSinceRef = useRef(null);
 
   const [weather, setWeather] = useState(null);
-  const [showWeatherPanel, setShowWeatherPanel] = useState(false);
   const [forceNight, setForceNight] = useState(null);
 
   const [currentTime, setCurrentTime] = useState(new Date());
@@ -214,7 +213,8 @@ export default function NavigatorApp() {
   }, []);
   const formattedTime = currentTime.toLocaleTimeString('ro-RO', { hour: '2-digit', minute: '2-digit', hour12: false });
 
-  const isNight = forceNight !== null ? forceNight : (() => {
+  // night mode determined automatically from time
+  const isNight = (() => {
     const h = currentTime.getHours();
     return h < 6 || h >= 19;
   })();
@@ -468,7 +468,7 @@ export default function NavigatorApp() {
 
     const el = document.createElement('div');
     el.className = 'dest-marker';
-    el.innerHTML = '<svg width="28" height="36" viewBox="0 0 24 32" fill="currentColor"><path d="M12 0C5.4 0 0 5.4 0 12c0 8.4 12 20 12 20s12-11.6 12-20C24 5.4 18.6 0 12 0zm0 16c-2.2 0-4-1.8-4-4s1[...';
+    el.innerHTML = '<svg width="28" height="36" viewBox="0 0 24 32" fill="currentColor"><path d="M12 0C5.4 0 0 5.4 0 12c0 8.4 12 20 12 20s12-11.6 12-20C24 5.4 18.6 0 12 0zm0 16c-2.2 0-4-1.8-4-4s1[...]';
     el.style.color = '#ef4444';
     destMarkerRef.current = new maplibregl.Marker({ element: el, anchor: 'bottom' })
       .setLngLat([dest.lon, dest.lat]).addTo(map);
@@ -576,6 +576,10 @@ export default function NavigatorApp() {
     }
   };
 
+  const weatherBadgeClass = isNight
+    ? 'bg-black/60 text-white border border-white/20'
+    : 'bg-white/20 text-black border border-white/30';
+
   return (
     <div className="App" style={{ position: 'relative' }}>
       <div ref={mapContainerRef} className="absolute inset-0" />
@@ -610,62 +614,10 @@ export default function NavigatorApp() {
             </div>
 
             <div className="flex flex-col items-end">
-              <span className="text-[13px] font-semibold tracking-tight">{formattedTime}</span>
-              <span className="text-[9px] opacity-70">
-                {weather ? `${Math.round(weather.daily.temperature_2m_min[0])}° / ${Math.round(weather.daily.temperature_2m_max[0])}°` : 'Se încarcă...'}
-              </span>
-            </div>
-          </div>
-
-          <div className="mt-2 flex items-center justify-between border-t border-white/10 pt-2">
-            <div className="flex items-center gap-2 text-[10px] opacity-75">
-              <span>Mâine</span>
-              <span className="text-base">{weather ? weatherCodeToIcon(weather.daily.weathercode?.[1]) : '❓'}</span>
-              <span>{weather ? `${Math.round(weather.daily.temperature_2m_max[1])}°` : '--°'}</span>
-            </div>
-
-            <div className="flex items-center gap-1.5">
-              <button
-                type="button"
-                onClick={() => setShowWeatherPanel((v) => !v)}
-                className={`rounded-full px-2 py-1 text-[10px] font-medium ${isNight ? 'bg-white/10 text-white' : 'bg-white/70 text-black'}`}
-                aria-expanded={showWeatherPanel}
-                title="Detalii meteo"
-              >
-                {showWeatherPanel ? 'Ascunde' : 'Detalii'}
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setForceNight((prev) => (prev === null ? !isNight : (prev ? null : true)))}
-                className={`rounded-full p-1.5 ${isNight ? 'bg-white/10 text-white' : 'bg-white/70 text-black'}`}
-                title="Toggle night mode"
-              >
-                {isNight ? <Moon size={12} /> : <Sun size={12} />}
-              </button>
+              <span className="text-3xl font-extrabold tracking-tight">{formattedTime}</span>
             </div>
           </div>
         </div>
-
-        {showWeatherPanel && (
-          <div className={`pointer-events-auto mt-2 w-[250px] rounded-2xl border p-3 shadow-lg backdrop-blur-sm ${isNight ? 'bg-black/75 text-white border-white/10' : 'bg-white/35 text-black border-white/40'}`}>
-            {weather ? (
-              <div className="grid grid-cols-2 gap-2 text-center">
-                {weather.daily.time.map((d, i) => (
-                  <div key={d} className="rounded-xl p-2 ${isNight ? 'bg-white/5' : 'bg-black/5'}">
-                    <div className="text-[10px] uppercase tracking-wide opacity-70">{i === 0 ? 'Azi' : 'Mâine'}</div>
-                    <div className="my-1 text-2xl">{weatherCodeToIcon(weather.daily.weathercode[i])}</div>
-                    <div className="text-xs font-semibold">
-                      {Math.round(weather.daily.temperature_2m_max[i])}° / {Math.round(weather.daily.temperature_2m_min[i])}°
-                    </div>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div className="text-sm">Se încarcă prognoza…</div>
-            )}
-          </div>
-        )}
       </div>
 
       <div className="absolute right-3 bottom-48 z-30 flex flex-col gap-2">
