@@ -73,10 +73,10 @@ function findClosestPointOnRoute(lat, lon, coords) {
   let bestPoint = coords[0];
   for (let i = 0; i < coords.length - 1; i++) {
     const a = coords[i];
-    const b = coords[i+1];
+    const b = coords[i + 1];
     const dx = b[0] - a[0];
     const dy = b[1] - a[1];
-    const len2 = dx*dx + dy*dy;
+    const len2 = dx * dx + dy * dy;
     if (len2 === 0) continue;
     let t = ((lon - a[0]) * dx + (lat - a[1]) * dy) / len2;
     t = Math.max(0, Math.min(1, t));
@@ -96,7 +96,7 @@ function distToRouteMeters(lat, lon, coords) {
   if (!coords || coords.length < 2) return Infinity;
   let min = Infinity;
   for (let i = 0; i < coords.length - 1; i++) {
-    const d = pointToSegMeters(lat, lon, coords[i][1], coords[i][0], coords[i+1][1], coords[i+1][0]);
+    const d = pointToSegMeters(lat, lon, coords[i][1], coords[i][0], coords[i + 1][1], coords[i + 1][0]);
     if (d < min) min = d;
   }
   return min;
@@ -201,10 +201,9 @@ export default function NavigatorApp() {
   const lastReroutedAtRef = useRef(0);
   const offRouteSinceRef = useRef(null);
 
-  // Weather state: today + tomorrow (2 days)
   const [weather, setWeather] = useState(null);
   const [showWeatherPanel, setShowWeatherPanel] = useState(false);
-  const [forceNight, setForceNight] = useState(null); // null = auto
+  const [forceNight, setForceNight] = useState(null);
 
   const [currentTime, setCurrentTime] = useState(new Date());
   useEffect(() => {
@@ -215,13 +214,11 @@ export default function NavigatorApp() {
   }, []);
   const formattedTime = currentTime.toLocaleTimeString('ro-RO', { hour: '2-digit', minute: '2-digit', hour12: false });
 
-  // Determine night mode: either forced by user or auto (local time)
   const isNight = forceNight !== null ? forceNight : (() => {
     const h = currentTime.getHours();
     return h < 6 || h >= 19;
   })();
 
-  // Fetch weather when we have a position (or fallback to center)
   useEffect(() => {
     let cancelled = false;
     const lat = filteredUserPos?.lat ?? rawUserPos?.lat ?? DEFAULT_CENTER[1];
@@ -247,24 +244,24 @@ export default function NavigatorApp() {
       center: DEFAULT_CENTER,
       zoom: 17,
       minZoom: 6,
-      maxZoom: 17, // ✅ Stable zoom level - no blank map
+      maxZoom: 17,
       attributionControl: false,
       pitchWithRotate: false,
       dragRotate: true,
       maxBounds: [[24.5, 45.0], [31.5, 49.0]],
     });
 
-    map.on('load', () => { 
-      setMapReady(true); 
+    map.on('load', () => {
+      setMapReady(true);
       setMapInstance(map);
       try {
         const layers = map.getStyle().layers;
-        const houseLayers = layers.filter(l => 
-          l.id.includes('house') || 
-          l.id.includes('building-number') || 
+        const houseLayers = layers.filter((l) =>
+          l.id.includes('house') ||
+          l.id.includes('building-number') ||
           l.id.includes('address')
         );
-        houseLayers.forEach(layer => {
+        houseLayers.forEach((layer) => {
           const layerId = layer.id;
           map.setLayoutProperty(layerId, 'text-size', [
             'interpolate', ['linear'], ['zoom'],
@@ -272,7 +269,7 @@ export default function NavigatorApp() {
             16, 22,
             17, 32,
           ]);
-          map.setLayoutProperty(layerId, 'text-font', ["Metropolis Bold"]);
+          map.setLayoutProperty(layerId, 'text-font', ['Metropolis Bold']);
           map.setLayoutProperty(layerId, 'text-allow-overlap', true);
           map.setLayoutProperty(layerId, 'text-ignore-placement', true);
           map.setPaintProperty(layerId, 'text-halo-width', 3.5);
@@ -287,10 +284,10 @@ export default function NavigatorApp() {
     map.on('error', (e) => console.warn('map err', e?.error?.message || e));
     map.on('dragstart', () => setFollowing(false));
     mapRef.current = map;
-    return () => { 
+    return () => {
       if (mapRef.current) {
-        mapRef.current.remove(); 
-        mapRef.current = null; 
+        mapRef.current.remove();
+        mapRef.current = null;
       }
     };
   }, []);
@@ -308,14 +305,12 @@ export default function NavigatorApp() {
     return () => window.removeEventListener('deviceorientation', handler, true);
   }, []);
 
-  // ===== ELIMINAT PUNCTUL ALB DIN INTERIOR =====
   const updateUserMarker = useCallback((lat, lon) => {
     if (!mapReady || !mapRef.current) return;
     const map = mapRef.current;
     if (!userMarkerRef.current) {
       const el = document.createElement('div');
       el.className = 'user-dot';
-      // NU mai creăm elementul 'core' (punctul alb)
       userMarkerRef.current = new maplibregl.Marker({ element: el, anchor: 'center' })
         .setLngLat([lon, lat])
         .addTo(map);
@@ -326,17 +321,17 @@ export default function NavigatorApp() {
 
   useEffect(() => {
     if (!('geolocation' in navigator)) return;
-    
+
     const onPos = (pos) => {
       const { latitude, longitude, heading, accuracy, speed } = pos.coords;
       const now = Date.now();
       if (now - lastUpdateTimeRef.current < 100) return;
       lastUpdateTimeRef.current = now;
-      
+
       const filtered = kalmanFilterRef.current.update(latitude, longitude);
       setRawUserPos({ lat: latitude, lon: longitude, heading, accuracy, speed });
       setFilteredUserPos({ lat: filtered.lat, lon: filtered.lon, heading, accuracy, speed });
-      
+
       if (firstPositionRef.current && mapRef.current) {
         firstPositionRef.current = false;
         const map = mapRef.current;
@@ -347,7 +342,7 @@ export default function NavigatorApp() {
         });
         setFollowing(true);
       }
-      
+
       if (navStarted && routeGeomRef.current && filtered) {
         const coords = routeGeomRef.current;
         if (coords.length >= 2) {
@@ -380,9 +375,9 @@ export default function NavigatorApp() {
 
     navigator.geolocation.getCurrentPosition(onPos, onErr, options);
     watchIdRef.current = navigator.geolocation.watchPosition(onPos, onErr, options);
-    
-    return () => { 
-      if (watchIdRef.current) navigator.geolocation.clearWatch(watchIdRef.current); 
+
+    return () => {
+      if (watchIdRef.current) navigator.geolocation.clearWatch(watchIdRef.current);
     };
   }, [navStarted, updateUserMarker]);
 
@@ -413,20 +408,20 @@ export default function NavigatorApp() {
     if (following && navStarted && route) {
       const bearing = compass ?? filteredUserPos.heading ?? 0;
       map.easeTo({
-        center: [displayPos.lon, displayPos.lat], 
-        zoom: 17, // ✅ Stable zoom
+        center: [displayPos.lon, displayPos.lat],
+        zoom: 17,
         bearing: isNaN(bearing) ? 0 : bearing,
         pitch: 0,
         duration: 400,
         padding: { top: 280, bottom: 150, left: 0, right: 0 },
       });
     } else if (following && route) {
-      map.easeTo({ 
-        center: [displayPos.lon, displayPos.lat], 
+      map.easeTo({
+        center: [displayPos.lon, displayPos.lat],
         zoom: 17,
         bearing: 0,
         pitch: 0,
-        duration: 500 
+        duration: 500,
       });
     }
   }, [filteredUserPos, mapReady, following, route, navStarted, compass]);
@@ -470,10 +465,10 @@ export default function NavigatorApp() {
     setDestination(dest);
     const map = mapRef.current;
     if (destMarkerRef.current) destMarkerRef.current.remove();
-    
+
     const el = document.createElement('div');
     el.className = 'dest-marker';
-    el.innerHTML = '<svg width="28" height="36" viewBox="0 0 24 32" fill="currentColor"><path d="M12 0C5.4 0 0 5.4 0 12c0 8.4 12 20 12 20s12-11.6 12-20C24 5.4 18.6 0 12 0zm0 16c-2.2 0-4-1.8-4-4s1[...]';
+    el.innerHTML = '<svg width="28" height="36" viewBox="0 0 24 32" fill="currentColor"><path d="M12 0C5.4 0 0 5.4 0 12c0 8.4 12 20 12 20s12-11.6 12-20C24 5.4 18.6 0 12 0zm0 16c-2.2 0-4-1.8-4-4s1[...';
     el.style.color = '#ef4444';
     destMarkerRef.current = new maplibregl.Marker({ element: el, anchor: 'bottom' })
       .setLngLat([dest.lon, dest.lat]).addTo(map);
@@ -484,10 +479,10 @@ export default function NavigatorApp() {
       drawRoute(r.geometry);
       const coords = r.geometry.coordinates;
       const bounds = coords.reduce((b, c) => b.extend(c), new maplibregl.LngLatBounds(coords[0], coords[0]));
-      map.fitBounds(bounds, { 
-        padding: { top: 120, bottom: 240, left: 40, right: 40 }, 
+      map.fitBounds(bounds, {
+        padding: { top: 120, bottom: 240, left: 40, right: 40 },
         maxZoom: 17,
-        duration: 800 
+        duration: 800,
       });
       setFollowing(false);
     } catch (e) {
@@ -509,8 +504,8 @@ export default function NavigatorApp() {
         setRouteCoords(newCoords);
       }
       map.easeTo({
-        center: [rawUserPos.lon, rawUserPos.lat], 
-        zoom: 17, // ✅ Stable zoom
+        center: [rawUserPos.lon, rawUserPos.lat],
+        zoom: 17,
         bearing: compass ?? rawUserPos.heading ?? 0,
         pitch: 0,
         duration: 700,
@@ -537,7 +532,7 @@ export default function NavigatorApp() {
     const coords = route.geometry?.coordinates || [];
     const distOff = distToRouteMeters(pos.lat, pos.lon, coords);
     const now = Date.now();
-    
+
     if (distOff > 35) {
       if (offRouteSinceRef.current == null) offRouteSinceRef.current = now;
       const elapsed = now - offRouteSinceRef.current;
@@ -547,9 +542,9 @@ export default function NavigatorApp() {
         offRouteSinceRef.current = null;
         setRerouting(true);
         getRoute(pos.lat, pos.lon, destination.lat, destination.lon, profile)
-          .then((r) => { 
-            setRoute(r); 
-            setCurrentStep(0); 
+          .then((r) => {
+            setRoute(r);
+            setCurrentStep(0);
             drawRoute(r.geometry);
             if (routeGeomRef.current) {
               const { point } = findClosestPointOnRoute(pos.lat, pos.lon, routeGeomRef.current);
@@ -562,7 +557,7 @@ export default function NavigatorApp() {
     } else {
       offRouteSinceRef.current = null;
     }
-    
+
     if (destination) {
       const dArr = haversine(pos.lat, pos.lon, destination.lat, destination.lon);
       if (dArr < 20) {
@@ -576,14 +571,10 @@ export default function NavigatorApp() {
   const recenter = () => {
     if (filteredUserPos && mapRef.current) {
       const pos = snapPointRef.current || filteredUserPos;
-      mapRef.current.flyTo({ center: [pos.lon, pos.lat], zoom: 17, duration: 600 }); // ✅ Stable zoom
+      mapRef.current.flyTo({ center: [pos.lon, pos.lat], zoom: 17, duration: 600 });
       setFollowing(true);
     }
   };
-
-  const weatherBadgeClass = isNight
-    ? 'bg-black/60 text-white border border-white/20'
-    : 'bg-white/20 text-black border border-white/30';
 
   return (
     <div className="App" style={{ position: 'relative' }}>
@@ -598,42 +589,83 @@ export default function NavigatorApp() {
         />
       )}
 
-      {/* Compact weather + clock card */}
       <div className="absolute bottom-4 left-4 z-10 pointer-events-none">
         <div
-          className={`pointer-events-auto w-[240px] rounded-xl px-3 py-2 shadow-lg border backdrop-blur-sm ${
-            isNight
-              ? 'bg-black/70 text-white border-white/10'
-              : 'bg-white/30 text-black border-white/40'
+          className={`pointer-events-auto w-[250px] rounded-2xl px-3 py-2.5 shadow-lg border backdrop-blur-sm ${
+            isNight ? 'bg-black/70 text-white border-white/10' : 'bg-white/30 text-black border-white/40'
           }`}
         >
           <div className="flex items-center justify-between gap-3">
-            <div className="flex flex-col items-start">
-              <span className="text-[9px] uppercase tracking-wide opacity-70">Azi</span>
-              <span className="text-lg font-semibold">
-                {weather ? `${Math.round(weather.daily.temperature_2m_max[0])}°` : '--°'}
-              </span>
+            <div className="flex items-center gap-3">
+              <div className={`flex h-10 w-10 items-center justify-center rounded-xl text-xl ${isNight ? 'bg-white/10' : 'bg-white/70'}`}>
+                {weather ? weatherCodeToIcon(weather.daily.weathercode?.[0]) : '⏳'}
+              </div>
+
+              <div className="flex flex-col leading-none">
+                <span className="text-[9px] uppercase tracking-wide opacity-70">Azi</span>
+                <span className="text-lg font-bold">
+                  {weather ? `${Math.round(weather.daily.temperature_2m_max[0])}°` : '--°'}
+                </span>
+              </div>
             </div>
 
-            <div className="flex flex-col items-center">
-              <span className="text-[9px] uppercase tracking-wide opacity-70">Mâine</span>
-              <span className="text-lg font-semibold">
-                {weather ? `${Math.round(weather.daily.temperature_2m_max[1])}°` : '--°'}
-              </span>
-            </div>
-
-            <div className="flex flex-col items-end min-w-[78px]">
-              <span className="text-[14px] font-semibold tracking-tight">
-                {formattedTime}
-              </span>
+            <div className="flex flex-col items-end">
+              <span className="text-[13px] font-semibold tracking-tight">{formattedTime}</span>
               <span className="text-[9px] opacity-70">
-                {weather
-                  ? `${Math.round(weather.daily.temperature_2m_min[0])}° / ${Math.round(weather.daily.temperature_2m_max[0])}°`
-                  : 'Se încarcă...'}
+                {weather ? `${Math.round(weather.daily.temperature_2m_min[0])}° / ${Math.round(weather.daily.temperature_2m_max[0])}°` : 'Se încarcă...'}
               </span>
             </div>
           </div>
+
+          <div className="mt-2 flex items-center justify-between border-t border-white/10 pt-2">
+            <div className="flex items-center gap-2 text-[10px] opacity-75">
+              <span>Mâine</span>
+              <span className="text-base">{weather ? weatherCodeToIcon(weather.daily.weathercode?.[1]) : '❓'}</span>
+              <span>{weather ? `${Math.round(weather.daily.temperature_2m_max[1])}°` : '--°'}</span>
+            </div>
+
+            <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                onClick={() => setShowWeatherPanel((v) => !v)}
+                className={`rounded-full px-2 py-1 text-[10px] font-medium ${isNight ? 'bg-white/10 text-white' : 'bg-white/70 text-black'}`}
+                aria-expanded={showWeatherPanel}
+                title="Detalii meteo"
+              >
+                {showWeatherPanel ? 'Ascunde' : 'Detalii'}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setForceNight((prev) => (prev === null ? !isNight : (prev ? null : true)))}
+                className={`rounded-full p-1.5 ${isNight ? 'bg-white/10 text-white' : 'bg-white/70 text-black'}`}
+                title="Toggle night mode"
+              >
+                {isNight ? <Moon size={12} /> : <Sun size={12} />}
+              </button>
+            </div>
+          </div>
         </div>
+
+        {showWeatherPanel && (
+          <div className={`pointer-events-auto mt-2 w-[250px] rounded-2xl border p-3 shadow-lg backdrop-blur-sm ${isNight ? 'bg-black/75 text-white border-white/10' : 'bg-white/35 text-black border-white/40'}`}>
+            {weather ? (
+              <div className="grid grid-cols-2 gap-2 text-center">
+                {weather.daily.time.map((d, i) => (
+                  <div key={d} className="rounded-xl p-2 ${isNight ? 'bg-white/5' : 'bg-black/5'}">
+                    <div className="text-[10px] uppercase tracking-wide opacity-70">{i === 0 ? 'Azi' : 'Mâine'}</div>
+                    <div className="my-1 text-2xl">{weatherCodeToIcon(weather.daily.weathercode[i])}</div>
+                    <div className="text-xs font-semibold">
+                      {Math.round(weather.daily.temperature_2m_max[i])}° / {Math.round(weather.daily.temperature_2m_min[i])}°
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="text-sm">Se încarcă prognoza…</div>
+            )}
+          </div>
+        )}
       </div>
 
       <div className="absolute right-3 bottom-48 z-30 flex flex-col gap-2">
