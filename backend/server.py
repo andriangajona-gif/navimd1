@@ -8,9 +8,10 @@ import logging
 import httpx
 from pathlib import Path
 from pydantic import BaseModel, Field
-from typing import List, Optional, Any, Dict
+from typing import List, Optional, Any, Dict, Iterable, Set
 import uuid
 from datetime import datetime
+import re
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -45,6 +46,7 @@ STREET_NAME_MAPPING = {
 # Reverse mapping for API responses
 STREET_REVERSE_MAPPING = {v: k for k, v in STREET_NAME_MAPPING.items()}
 
+
 def normalize_street_name(name: str) -> str:
     """Normalize street name for comparison (handles both formats)"""
     if not name:
@@ -57,37 +59,115 @@ def normalize_street_name(name: str) -> str:
         name = STREET_NAME_MAPPING[name]
     return name.lower().strip()
 
-@app.on_event('startup')
-async def _startup():
-    global http_client
-    http_client = httpx.AsyncClient(timeout=45.0, follow_redirects=True)
-    if client is None:
-        logger.info('MONGO_URL not set; MongoDB features (search history) are disabled')
 
-@app.on_event('shutdown')
-async def _shutdown():
-    if http_client:
-        await http_client.aclose()
-    if client:
-        client.close()
+def _normalize_token(value: Any) -> str:
+    if value is None:
+        return ''
+    text = str(value).strip().lower()
+    text = text.replace('ș', 's').replace('ţ', 't').replace('ă', 'a').replace('â', 'a').replace('î', 'i').replace('û', 'u')
+    text = re.sub(r'[^a-z0-9/\- ]+', ' ', text)
+    return re.sub(r'\s+', ' ', text).strip()
 
 
-class RouteRequest(BaseModel):
-    from_lat: float
-    from_lon: float
-    to_lat: float
-    to_lon: float
-    profile: str = 'driving'
+def _street_variants(street: str) -> List[str]:
+    if not street:
+        return []
+    raw = str(street).strip()
+    variants = []
+    seen: Set[str] = set()
+    candidates = [raw, raw.replace('str. ', 'Strada '), raw.replace('Strada ', 'str. ')]
+    for c in candidates:
+        c = c.strip()
+        if c and c.lower() not in seen:
+            variants.append(c)
+            seen.add(c.lower())
+    return variants
 
 
-class SavedSearch(BaseModel):
-    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
-    query: str
-    timestamp: datetime = Field(default_factory=datetime.utcnow)
+def _candidate_house_numbers(building: Any) -> List[str]:
+    raw = str(building or '').strip()
+    if not raw:
+        return []
+    cleaned = raw.replace('№', '').replace('#', '').strip()
+    if not cleaned:
+        return []
+    tokens = []
+    for part in re.split(r'\s*[,;/\\]\s*', cleaned):
+        part = part.strip()
+        if part:
+            tokens.append(part)
+    if not tokens:
+        tokens = [cleaned]
+    return [t for t in tokens if t]
 
 
-class SaveSearchRequest(BaseModel):
-    query: str
+def _result_matches_exactly(item: Dict[str, Any], street: str, building: Any, city: str) -> bool:
+    if not isinstance(item, dict):
+        return False
+
+    display_name = (item.get('display_name') or '').lower()
+    address = item.get('address') or {}
+    house_number = str(address.get('house_number') or address.get('building') or '').strip()
+    normalized_building = _normalize_token(building)
+    normalized_house = _normalize_token(house_number)
+    normalized_city = _normalize_token(city)
+    normalized_street = _normalize_token(street)
+
+    if normalized_building and normalized_house and normalized_building != normalized_house:
+        # This is a strong mismatch signal; reject it early.
+        return False
+
+    street_variants = [_normalize_token(v) for v in _street_variants(street)]
+    street_present = any(v and v in display_name for v in street_variants)
+    city_present = bool(normalized_city and normalized_city in display_name)
+    return street_present and city_present
+
+
+def _score_nominatim_result(item: Dict[str, Any], street: str, building: Any, city: str) -> int:
+    if not isinstance(item, dict):
+        return -999
+
+    display_name = (item.get('display_name') or '').lower()
+    address = item.get('address') or {}
+    house_number = str(address.get('house_number') or address.get('building') or '').strip()
+    normalized_building = _normalize_token(building)
+    normalized_house = _normalize_token(house_number)
+    city_norm = _normalize_token(city)
+    street_norm = _normalize_token(street)
+    score = 0
+
+    if not street_norm:
+        return -999
+
+    if any(_normalize_token(v) and _normalize_token(v) in display_name for v in _street_variants(street)):
+        score += 35
+
+    if city_norm and city_norm in display_name:
+        score += 20
+    elif 'moldova' in display_name:
+        score += 10
+
+    if 'moldova' in display_name:
+        score += 5
+
+    if normalized_building and normalized_house:
+        if normalized_building == normalized_house:
+            score += 45
+        else:
+            # reject wrong house numbers strongly
+            score -= 80
+
+    elif normalized_building:
+        # If there is no house number in OSM but the display name still contains the exact number,
+        # count it as a weak match.
+        if normalized_building in display_name:
+            score += 20
+
+    # slightly prefer exact address context over generic road matches
+    if 'road' in display_name or 'strada' in display_name or 'street' in display_name:
+        score += 5
+
+    return score
 
 
 @api_router.get('/')
@@ -114,14 +194,14 @@ async def search(
         data = r.json()
         if not isinstance(data, list):
             data = []
-        
+
         # Normalize street names in results
         for item in data:
             if isinstance(item, dict) and item.get('name'):
                 api_name = item.get('name')
                 if api_name in STREET_REVERSE_MAPPING:
                     item['name'] = STREET_REVERSE_MAPPING[api_name]
-        
+
         loc_low = location.lower()
         prio = [it for it in data if isinstance(it, dict) and loc_low in (it.get('parent_name') or '').lower()]
         rest = [it for it in data if it not in prio]
@@ -150,7 +230,7 @@ async def get_buildings(
         data = r.json()
         if not isinstance(data, list):
             return {'buildings': []}
-        
+
         # Match using normalized names
         street_normalized = normalize_street_name(street_name)
         for item in data:
@@ -190,23 +270,65 @@ async def geocode(
     lang: str = Query('ro'),
 ):
     try:
-        # Convert display name to API format for Nominatim query
+        if not street or not building:
+            logger.warning('geocode called without street/building')
+            return {'lat': None, 'lon': None}
+
         api_street = STREET_NAME_MAPPING.get(street, street)
-        url = 'https://nominatim.openstreetmap.org/search'
-        query = f'{building} {api_street}, {city}, Moldova'
-        params = {
-            'q': query,
-            'format': 'json',
-            'limit': 1,
-            'countrycodes': 'md',
-        }
-        headers = {'User-Agent': 'NaviMD/1.0'}
-        r = await http_client.get(url, params=params, headers=headers)
-        data = r.json() if r.status_code == 200 else []
-        if data and len(data) > 0:
-            logger.info(f'geocode match for {building} {api_street}: lat={data[0]["lat"]}, lon={data[0]["lon"]}')
-            return {'lat': float(data[0]['lat']), 'lon': float(data[0]['lon'])}
-        logger.warning(f'geocode no match for {building} {api_street}')
+        queries = []
+        for variant in _street_variants(api_street):
+            queries.append(f'{building} {variant}, {city}, Moldova')
+            queries.append(f'{building} {variant}, {city}, Republica Moldova')
+            queries.append(f'{variant} {building}, {city}, Moldova')
+            queries.append(f'{building} {variant}, {city}')
+
+        # dedupe while preserving order
+        deduped_queries = []
+        seen_queries = set()
+        for q in queries:
+            key = q.lower().strip()
+            if key and key not in seen_queries:
+                seen_queries.add(key)
+                deduped_queries.append(q)
+
+        best_match = None
+        best_score = -999
+
+        for query in deduped_queries:
+            params = {
+                'q': query,
+                'format': 'json',
+                'limit': 5,
+                'countrycodes': 'md',
+                'addressdetails': 1,
+                'accept-language': 'ro',
+                'namedetails': 1,
+            }
+            headers = {'User-Agent': 'NaviMD/1.0'}
+            r = await http_client.get('https://nominatim.openstreetmap.org/search', params=params, headers=headers)
+            if r.status_code != 200:
+                continue
+            try:
+                data = r.json() or []
+            except ValueError:
+                continue
+
+            for item in data:
+                if not isinstance(item, dict):
+                    continue
+                score = _score_nominatim_result(item, street, building, city)
+                if score > best_score:
+                    best_score = score
+                    best_match = item
+
+        if best_match and best_score >= 30:
+            lat = float(best_match['lat'])
+            lon = float(best_match['lon'])
+            logger.info(f'geocode exact/near-exact match for {building} {api_street}: lat={lat}, lon={lon}, score={best_score}')
+            return {'lat': lat, 'lon': lon}
+
+        # If there are no strong matches, do not accept an arbitrary first result.
+        logger.warning(f'geocode no strong match for {building} {api_street}; best_score={best_score}')
         return {'lat': None, 'lon': None}
     except Exception as e:
         logger.exception('geocode error')
@@ -333,7 +455,7 @@ async def save_search(req: SaveSearchRequest):
         raise HTTPException(status_code=503, detail="MongoDB not available")
     if not query or len(query) == 0:
         raise HTTPException(status_code=400, detail="Query cannot be empty")
-    
+
     existing = await searches_collection.find_one({"query": query})
     if existing:
         await searches_collection.update_one(
@@ -341,7 +463,7 @@ async def save_search(req: SaveSearchRequest):
             {"$set": {"timestamp": datetime.utcnow()}}
         )
         return {"message": "Search updated", "id": existing.get("id")}
-    
+
     search = SavedSearch(query=query)
     await searches_collection.insert_one(search.dict())
     return {"message": "Search saved", "id": search.id}
@@ -351,7 +473,7 @@ async def save_search(req: SaveSearchRequest):
 async def get_search_history(limit: int = Query(20, ge=1, le=100)):
     if not searches_collection:
         raise HTTPException(status_code=503, detail="MongoDB not available")
-    
+
     cursor = searches_collection.find().sort("timestamp", -1).limit(limit)
     history = []
     async for doc in cursor:
@@ -367,7 +489,7 @@ async def get_search_history(limit: int = Query(20, ge=1, le=100)):
 async def delete_search(search_id: str):
     if not searches_collection:
         raise HTTPException(status_code=503, detail="MongoDB not available")
-    
+
     result = await searches_collection.delete_one({"id": search_id})
     if result.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Search not found")
