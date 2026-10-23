@@ -5,7 +5,8 @@ import SearchPanel from './SearchPanel';
 import NavigationPanel from './NavigationPanel';
 import { Locate } from 'lucide-react';
 
-// ===== FILTRU KALMAN =====nclass KalmanFilter1D {
+// ===== FILTRU KALMAN =====
+class KalmanFilter1D {
   constructor(processNoise = 0.1, measurementNoise = 2.0) {
     this.q = processNoise;
     this.r = measurementNoise;
@@ -211,7 +212,6 @@ export default function NavigatorApp() {
   }, []);
   const formattedTime = currentTime.toLocaleTimeString('ro-RO', { hour: '2-digit', minute: '2-digit', hour12: false });
 
-  // night mode determined automatically from time
   const isNight = (() => {
     const h = currentTime.getHours();
     return h < 6 || h >= 19;
@@ -406,7 +406,7 @@ export default function NavigatorApp() {
     if (following && navStarted && route) {
       const bearing = compass ?? filteredUserPos.heading ?? 0;
       map.easeTo({
-        center: [displayPos.lon, displayPos.lat], 
+        center: [displayPos.lon, displayPos.lat],
         zoom: 17,
         bearing: isNaN(bearing) ? 0 : bearing,
         pitch: 0,
@@ -414,12 +414,12 @@ export default function NavigatorApp() {
         padding: { top: 280, bottom: 150, left: 0, right: 0 },
       });
     } else if (following && route) {
-      map.easeTo({ 
-        center: [displayPos.lon, displayPos.lat], 
+      map.easeTo({
+        center: [displayPos.lon, displayPos.lat],
         zoom: 17,
         bearing: 0,
         pitch: 0,
-        duration: 500, 
+        duration: 500,
       });
     }
   }, [filteredUserPos, mapReady, following, route, navStarted, compass]);
@@ -466,7 +466,7 @@ export default function NavigatorApp() {
 
     const el = document.createElement('div');
     el.className = 'dest-marker';
-    el.innerHTML = '<svg width=\"28\" height=\"36\" viewBox=\"0 0 24 32\" fill=\"currentColor\"><path d=\"M12 0C5.4 0 0 5.4 0 12c0 8.4 12 20 12 20s12-11.6 12-20C24 5.4 18.6 0 12 0zm0 16c-2.2 0-4-1.8-4-4s1[...]\"/></svg>';
+    el.innerHTML = '<svg width="28" height="36" viewBox="0 0 24 32" fill="currentColor"><path d="M12 0C5.4 0 0 5.4 0 12c0 8.4 12 20 12 20s12-11.6 12-20C24 5.4 18.6 0 12 0zm0 16c-2.2 0-4-1.8-4-4s1.8-4 4-4 4 1.8 4 4-1.8 4-4 4z"/></svg>';
     el.style.color = '#ef4444';
     destMarkerRef.current = new maplibregl.Marker({ element: el, anchor: 'bottom' })
       .setLngLat([dest.lon, dest.lat]).addTo(map);
@@ -591,10 +591,8 @@ export default function NavigatorApp() {
         />
       )}
 
-      {/* Minimal horizontal glass bar with large clock */}
       <div className="absolute left-4 right-4 bottom-4 z-10 pointer-events-none">
         <div className={`pointer-events-auto mx-auto w-full max-w-[1050px] rounded-2xl px-6 py-3 shadow-lg border backdrop-blur-sm flex items-center ${isNight ? 'bg-black/55 text-white border-white/10' : 'bg-white/30 text-black border-white/30'}`}>
-          {/* left: icon + degrees (together) */}
           <div className="flex items-center gap-2">
             <div className={`rounded-lg h-10 w-10 flex items-center justify-center text-xl ${isNight ? 'bg-white/06' : 'bg-white/70'}`}>
               {weather ? weatherCodeToIcon(weather.daily.weathercode?.[0]) : '⏳'}
@@ -605,14 +603,11 @@ export default function NavigatorApp() {
             <div className="text-sm opacity-80 ml-2">Azi</div>
           </div>
 
-          {/* spacer to push clock to the right */}
           <div className="flex-1" />
 
-          {/* right: large clock */}
           <div className="ml-auto text-right">
             <div className="text-6xl font-extrabold tracking-tight">{formattedTime}</div>
           </div>
-
         </div>
       </div>
 
