@@ -3,23 +3,25 @@
  * Prevents recalculating same addresses multiple times
  */
 
-const GEOCODE_CACHE_KEY = 'geocode_cache_v1';
+// Bump the key to discard coordinates saved by the old, incorrect Florești bounds.
+const GEOCODE_CACHE_KEY = 'geocode_cache_v2';
 const MAX_GEOCODE_CACHE = 500;
 
 const FALLBACK_COORDS = {
-  default: { lat: 47.0124, lon: 28.8474 }, // Florești center
+  // Approximate center of Florești, Moldova; used only when geocoding fails.
+  default: { lat: 47.893, lon: 28.301 },
 };
 
 /**
- * Validate if coordinates are within reasonable bounds for Florești
+ * Validate coordinates are within Moldova, rather than a tiny area near Chișinău.
+ * This allows valid geocodes for Florești and nearby localities such as Varvareuca.
  */
 function isValidCoord(lat, lon) {
-  if (!lat || !lon || typeof lat !== 'number' || typeof lon !== 'number') return false;
-  // Florești bounds (approximate)
-  const minLat = 46.9;
-  const maxLat = 47.1;
-  const minLon = 28.7;
-  const maxLon = 28.95;
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) return false;
+  const minLat = 45.3;
+  const maxLat = 48.5;
+  const minLon = 26.5;
+  const maxLon = 30.9;
   return lat >= minLat && lat <= maxLat && lon >= minLon && lon <= maxLon;
 }
 
@@ -44,7 +46,7 @@ export function getGeocodeCache() {
 }
 
 /**
- * Add or update a geocode in cache (only if valid)
+ * Add or update a geocode in cache (only if it is in Moldova)
  */
 export function setGeocodeCache(street, building, lat, lon, city = 'Florești') {
   if (!street || !building) return false;

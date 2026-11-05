@@ -18,6 +18,16 @@ const MANUAL_COORDS = {
 // Orașului prioritar
 const PRIORITY_CITY = 'Florești';
 
+function normalizePlaceName(value) {
+  return String(value || '')
+    .trim()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[.,]/g, '')
+    .replace(/\s+/g, ' ');
+}
+
 export default function SearchPanel({ onSelectDestination, userPos }) {
   const [q, setQ] = useState('');
   const [open, setOpen] = useState(false);
@@ -93,11 +103,9 @@ export default function SearchPanel({ onSelectDestination, userPos }) {
         let items = (data.results || []).filter(it => it.type === 'street');
         items = items.map(it => it.name === "str. 9 Mai" ? { ...it, name: "Strada 9 Mai" } : it);
 
-        // === PRIORITIZEAZĂ FLOREȘTI ===
-        const florestiItems = items.filter(it => it.parent_name === PRIORITY_CITY);
-        const otherItems = items.filter(it => it.parent_name !== PRIORITY_CITY);
-
-        // Afișează mai întâi cele din Florești, apoi celelalte
+        // Prioritize Florești regardless of capitalization or diacritics.
+        const florestiItems = items.filter(it => normalizePlaceName(it.parent_name) === normalizePlaceName(PRIORITY_CITY));
+        const otherItems = items.filter(it => normalizePlaceName(it.parent_name) !== normalizePlaceName(PRIORITY_CITY));
         const sortedItems = [...florestiItems, ...otherItems];
         setResults(sortedItems);
 
@@ -188,7 +196,9 @@ export default function SearchPanel({ onSelectDestination, userPos }) {
     if (!selectedStreet) return;
     let lat, lon;
     const streetName = selectedStreet.name;
-    const city = PRIORITY_CITY;
+    // Use the locality returned with the selected street; never geocode a nearby
+    // street using the app's default locality when the result belongs elsewhere.
+    const city = selectedStreet.parent_name || PRIORITY_CITY;
 
     // Check manual coords first
     if (streetName === "Strada 9 Mai" && MANUAL_COORDS[b]) {
@@ -278,7 +288,7 @@ export default function SearchPanel({ onSelectDestination, userPos }) {
         <input
           ref={inputRef}
           type="text"
-          value={selectedStreet ? `${selectedStreet.name}, ${PRIORITY_CITY}` : q}
+          value={selectedStreet ? `${selectedStreet.name}, ${selectedStreet.parent_name || PRIORITY_CITY}` : q}
           onChange={handleInputChange}
           onFocus={handleInputFocus}
           placeholder={selectedStreet ? 'Выберите номер дома...' : 'Поиск улицы...'}
@@ -325,7 +335,7 @@ export default function SearchPanel({ onSelectDestination, userPos }) {
                   {error && <div className="px-4 py-3 text-red-700">{error}</div>}
                   {!loading && results.length === 0 && q.length >= 2 && !error && <div className="px-4 py-3 text-black/70">Ничего не найдено</div>}
                   {results.map(s => {
-                    const isPriority = s.parent_name === PRIORITY_CITY;
+                    const isPriority = normalizePlaceName(s.parent_name) === normalizePlaceName(PRIORITY_CITY);
                     return (
                       <button
                         key={s.id}
@@ -341,7 +351,7 @@ export default function SearchPanel({ onSelectDestination, userPos }) {
                             {isPriority && <span className="text-amber-600 text-xs ml-2">⭐</span>}
                           </div>
                           <div className="text-black/60 text-xs">
-                            {s.parent_name || PRIORITY_CITY} · {s.count} домов
+                            {s.parent_name || 'Localitate necunoscută'} · {s.count} домов
                           </div>
                         </div>
                         <ChevronRight size={16} className="text-black/40" />

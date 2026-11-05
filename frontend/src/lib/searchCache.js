@@ -5,7 +5,8 @@
 
 import { setGeocodeCache, getCachedGeocode } from './geocodeCache';
 
-const CACHE_KEY = 'search_cache_addresses';
+// Ignore saved address coordinates from earlier versions that may point to a different locality.
+const CACHE_KEY = 'search_cache_addresses_v2';
 const MAX_CACHE_SIZE = 100;
 
 function normalizeCity(city) {
@@ -50,7 +51,7 @@ export function getCache() {
           }))
           .filter((item) => {
             const city = normalizeCity(item.city);
-            const isFloresti = city.includes('floresti') || city.includes('floresti');
+            const isFloresti = city.includes('floresti');
             const validCoords = !item.lat || !item.lon || isValidCoord(Number(item.lat), Number(item.lon));
             return isFloresti && validCoords;
           })
