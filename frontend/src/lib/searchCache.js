@@ -1,170 +1,79 @@
 /**
  * Search Cache Utility
- * Caches full addresses (street + building number) in localStorage
+ * Caches full addresses (street + building number) in localStorage.
  */
 
 import { setGeocodeCache, getCachedGeocode } from './geocodeCache';
 
-// Ignore saved address coordinates from earlier versions that may point to a different locality.
-const CACHE_KEY = 'search_cache_addresses_v2';
+// New version deliberately drops old cached addresses with potentially wrong points.
+const CACHE_KEY = 'search_cache_addresses_v3';
 const MAX_CACHE_SIZE = 100;
 
 function normalizeCity(city) {
-  if (!city) return 'floresti';
-  return String(city)
-    .trim()
-    .toLowerCase()
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replace(/\s+/g, ' ')
-    .replace(/[.,]/g, '');
+  return String(city || 'Florești').trim().toLowerCase().normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, ' ').replace(/[.,]/g, '');
 }
 
 function isValidCoord(lat, lon) {
-  if (!lat || !lon || typeof lat !== 'number' || typeof lon !== 'number') return false;
-  const minLat = 45.3;
-  const maxLat = 48.5;
-  const minLon = 26.5;
-  const maxLon = 30.9;
-  return lat >= minLat && lat <= maxLat && lon >= minLon && lon <= maxLon;
+  const latitude = Number(lat);
+  const longitude = Number(lon);
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return false;
+  const center = { lat: 47.89286, lon: 28.29854 };
+  const toRad = (n) => n * Math.PI / 180;
+  const dLat = toRad(latitude - center.lat);
+  const dLon = toRad(longitude - center.lon);
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(center.lat)) * Math.cos(toRad(latitude)) * Math.sin(dLon / 2) ** 2;
+  const distance = 6371000 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return distance <= 4000;
 }
 
 export function initCache() {
-  const cached = localStorage.getItem(CACHE_KEY);
-  if (!cached) {
-    localStorage.setItem(CACHE_KEY, JSON.stringify([]));
-  }
+  if (!localStorage.getItem(CACHE_KEY)) localStorage.setItem(CACHE_KEY, JSON.stringify([]));
   return getCache();
 }
 
 export function getCache() {
   try {
-    const cached = localStorage.getItem(CACHE_KEY);
-    const parsed = cached ? JSON.parse(cached) : [];
-    const cleaned = Array.isArray(parsed)
-      ? parsed
-          .filter((item) => item && typeof item === 'object')
-          .map((item) => ({
-            ...item,
-            city: item.city || 'Florești',
-            address: item.address || `${item.street || ''}, ${item.building || ''}, ${item.city || 'Florești'}`,
-          }))
-          .filter((item) => {
-            const city = normalizeCity(item.city);
-            const isFloresti = city.includes('floresti');
-            const validCoords = !item.lat || !item.lon || isValidCoord(Number(item.lat), Number(item.lon));
-            return isFloresti && validCoords;
-          })
-      : [];
-
-    if (cleaned.length !== (Array.isArray(parsed) ? parsed.length : 0)) {
-      localStorage.setItem(CACHE_KEY, JSON.stringify(cleaned));
-    }
-
+    const parsed = JSON.parse(localStorage.getItem(CACHE_KEY) || '[]');
+    const cleaned = Array.isArray(parsed) ? parsed.filter((item) => item && typeof item === 'object')
+      .map((item) => ({ ...item, city: item.city || 'Florești', address: item.address || `${item.street || ''}, ${item.building || ''}, ${item.city || 'Florești'}` }))
+      .filter((item) => normalizeCity(item.city) === 'floresti' && (!item.lat || !item.lon || isValidCoord(item.lat, item.lon))) : [];
+    if (cleaned.length !== parsed.length) localStorage.setItem(CACHE_KEY, JSON.stringify(cleaned));
     return cleaned;
-  } catch (err) {
-    console.warn('Failed to read cache:', err);
-    return [];
-  }
+  } catch (err) { console.warn('Failed to read cache:', err); return []; }
 }
 
 export function addAddressToCache(streetName, buildingNumber, city, lat = null, lon = null) {
-  const fullAddress = `${streetName}, ${buildingNumber}, ${city}`;
-
-  if (!fullAddress || fullAddress.trim().length < 5) return;
-
+  if (normalizeCity(city) !== 'floresti') return;
+  const address = `${streetName}, ${buildingNumber}, ${city || 'Florești'}`.trim();
   try {
-    let cache = getCache();
-    const normalizedAddress = fullAddress.trim();
-    const safeCity = city || 'Florești';
-
-    if (lat != null && lon != null && !isValidCoord(Number(lat), Number(lon))) {
-      console.warn(`Invalid coordinates for ${fullAddress}: lat=${lat}, lon=${lon}`);
-      lat = null;
-      lon = null;
-    }
-
-    cache = cache.filter((item) =>
-      item.address.toLowerCase() !== normalizedAddress.toLowerCase()
-    );
-
-    const entry = {
-      address: normalizedAddress,
-      street: streetName,
-      building: buildingNumber,
-      city: safeCity,
-      lat: lat,
-      lon: lon,
-      timestamp: Date.now(),
-      validated: lat != null && lon != null,
-    };
-
-    cache.unshift(entry);
-    cache = cache.slice(0, MAX_CACHE_SIZE);
+    let cache = getCache().filter((item) => item.address.toLowerCase() !== address.toLowerCase());
+    const valid = lat != null && lon != null && isValidCoord(lat, lon);
+    const entry = { address, street: streetName, building: buildingNumber, city: city || 'Florești', lat: valid ? Number(lat) : null, lon: valid ? Number(lon) : null, timestamp: Date.now(), validated: valid };
+    cache = [entry, ...cache].slice(0, MAX_CACHE_SIZE);
     localStorage.setItem(CACHE_KEY, JSON.stringify(cache));
-
-    if (lat != null && lon != null) {
-      setGeocodeCache(streetName, buildingNumber, Number(lat), Number(lon), safeCity);
-    }
-  } catch (err) {
-    console.warn('Failed to add address to cache:', err);
-  }
+    if (valid) setGeocodeCache(streetName, buildingNumber, Number(lat), Number(lon), city || 'Florești');
+  } catch (err) { console.warn('Failed to add address to cache:', err); }
 }
 
 export function getCachedAddress(street, building, city = 'Florești') {
-  const cache = getCache();
-  const address = cache.find((item) =>
-    item.street.toLowerCase() === String(street).toLowerCase() &&
-    item.building.toString() === building.toString() &&
-    normalizeCity(item.city) === normalizeCity(city)
-  );
-
-  if (address && address.lat != null && address.lon != null && isValidCoord(Number(address.lat), Number(address.lon))) {
-    return address;
-  }
-
+  const address = getCache().find((item) => item.street?.toLowerCase() === String(street).toLowerCase() && String(item.building) === String(building) && normalizeCity(item.city) === normalizeCity(city));
+  if (address && isValidCoord(address.lat, address.lon)) return address;
   const geocoded = getCachedGeocode(street, building, city);
-  if (geocoded) {
-    return {
-      address: `${street}, ${building}, ${city}`,
-      street,
-      building,
-      city,
-      lat: geocoded.lat,
-      lon: geocoded.lon,
-      timestamp: Date.now(),
-      validated: true,
-    };
-  }
-
-  return null;
+  return geocoded ? { address: `${street}, ${building}, ${city}`, street, building, city, ...geocoded, timestamp: Date.now(), validated: true } : null;
 }
 
 export function clearCache() {
-  try {
-    localStorage.setItem(CACHE_KEY, JSON.stringify([]));
-  } catch (err) {
-    console.warn('Failed to clear cache:', err);
-  }
+  try { localStorage.setItem(CACHE_KEY, JSON.stringify([])); }
+  catch (err) { console.warn('Failed to clear cache:', err); }
 }
 
 export function removeFromCache(address) {
-  try {
-    let cache = getCache();
-    cache = cache.filter((item) => item.address.toLowerCase() !== String(address).toLowerCase());
-    localStorage.setItem(CACHE_KEY, JSON.stringify(cache));
-  } catch (err) {
-    console.warn('Failed to remove from cache:', err);
-  }
+  try { localStorage.setItem(CACHE_KEY, JSON.stringify(getCache().filter((item) => item.address.toLowerCase() !== String(address).toLowerCase()))); }
+  catch (err) { console.warn('Failed to remove from cache:', err); }
 }
 
 export function getCacheStats() {
-  const cache = getCache();
-  const validated = cache.filter((item) => item.validated).length;
-  return {
-    totalItems: cache.length,
-    validatedItems: validated,
-    maxSize: MAX_CACHE_SIZE,
-    items: cache,
-  };
+  const items = getCache();
+  return { totalItems: items.length, validatedItems: items.filter((item) => item.validated).length, maxSize: MAX_CACHE_SIZE, items };
 }
