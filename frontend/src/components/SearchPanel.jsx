@@ -15,6 +15,9 @@ const MANUAL_COORDS = {
   "67": { lat: 47.90616, lon: 28.28910 },
 };
 
+// Verified map location for the circled building: Mihai Viteazul 9, Florești.
+const MIHAI_VITEAZUL_9_COORDS = { lat: 47.8946761, lon: 28.3107701 };
+
 // Căutarea și geocodarea sunt limitate la acest oraș.
 const PRIORITY_CITY = 'Florești';
 
@@ -185,12 +188,13 @@ export default function SearchPanel({ onSelectDestination, userPos }) {
     let lat, lon;
     const streetName = selectedStreet.name;
     const city = PRIORITY_CITY;
+    const normalizedStreetName = normalizePlaceName(streetName);
+    const isMihaiViteazul = normalizedStreetName === 'strada mihai viteazul' || normalizedStreetName === 'str mihai viteazul';
 
-    // Correct known map.md mismatch: Cantemir house 3 is placed at house 15.
-    // Use the verified house-3 point captured from the Florești map instead.
-    if (/^str(?:ada)?\.?\s+dimitrie\s+cantemir$/i.test(streetName.trim()) && String(b) === '3') {
-      lat = 47.89300;
-      lon = 28.30100;
+    // Override stale or incorrect geocoder/cache results for the circled address.
+    if (isMihaiViteazul && String(b).trim() === '9') {
+      lat = MIHAI_VITEAZUL_9_COORDS.lat;
+      lon = MIHAI_VITEAZUL_9_COORDS.lon;
     } else if (streetName === "Strada 9 Mai" && MANUAL_COORDS[b]) {
       lat = MANUAL_COORDS[b].lat;
       lon = MANUAL_COORDS[b].lon;
@@ -228,6 +232,7 @@ export default function SearchPanel({ onSelectDestination, userPos }) {
       city,
     };
 
+    // Persist the corrected point so selecting this address again uses the same location.
     addAddressToCache(streetName, b, city, lat, lon);
     onSelectDestination(dest, false);
     resetAfterSelect();
@@ -272,7 +277,7 @@ export default function SearchPanel({ onSelectDestination, userPos }) {
         )}
         <input
           ref={inputRef}
-          type="text"
+          type="text'
           value={selectedStreet ? `${selectedStreet.name}, ${PRIORITY_CITY}` : q}
           onChange={handleInputChange}
           onFocus={handleInputFocus}
