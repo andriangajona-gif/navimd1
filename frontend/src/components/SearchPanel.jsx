@@ -10,37 +10,71 @@ const MANUAL_COORDS = {
   '25': { lat: 47.90479, lon: 28.29035 },
   '67': { lat: 47.90616, lon: 28.28910 },
 };
-// Corrected point for the building circled by the user.
+// User-confirmed point for the circled building.
 const MIHAI_VITEAZUL_9 = { lat: 47.8946761, lon: 28.3107701 };
-// Approximate Florești town center. Used only to reject geocoder results that are
-// clearly in another locality; never used as a house-level destination fallback.
 const FLORESTI_CENTER = { lat: 47.89286, lon: 28.29854 };
 const MAX_GEOCODE_DISTANCE_METERS = 4000;
 
 function normalize(value) {
-  return String(value || '')
-    .trim()
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase()
-    .replace(/[.,]/g, '')
-    .replace(/\s+/g, ' ');
+  return String(value || '').trim().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase().replace(/[.,]/g, '').replace(/\s+/g, ' ');
 }
 
 function isFlorestiCoordinate(lat, lon) {
-  if (!Number.isFinite(Number(lat)) || !Number.isFinite(Number(lon))) return false;
+  const latitude = Number(lat);
+  const longitude = Number(lon);
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude) || latitude === 0 || longitude === 0) return false;
   const toRad = (n) => n * Math.PI / 180;
-  const dLat = toRad(Number(lat) - FLORESTI_CENTER.lat);
-  const dLon = toRad(Number(lon) - FLORESTI_CENTER.lon);
-  const a = Math.sin(dLat / 2) ** 2 +
-    Math.cos(toRad(FLORESTI_CENTER.lat)) * Math.cos(toRad(Number(lat))) * Math.sin(dLon / 2) ** 2;
-  const distance = 6371000 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-  return distance <= MAX_GEOCODE_DISTANCE_METERS;
+  const dLat = toRad(latitude - FLORESTI_CENTER.lat);
+  const dLon = toRad(longitude - FLORESTI_CENTER.lon);
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(FLORESTI_CENTER.lat)) * Math.cos(toRad(latitude)) * Math.sin(dLon / 2) ** 2;
+  return 6371000 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)) <= MAX_GEOCODE_DISTANCE_METERS;
+}
+
+function getLocality(result) {
+  const address = result?.address;
+  return result?.parent_name || result?.locality || result?.city || result?.town || result?.village ||
+    (typeof address === 'string' ? address : address?.city || address?.town || address?.village || address?.municipality);
+}
+
+// Geocoders commonly return either {lat, lon}, GeoJSON coordinates [lon, lat],
+// or a nested result/geometry. Normalize these shapes before validating.
+function extractCoordinates(result, depth = 0) {
+  if (!result || depth > 4) return null;
+  if (Array.isArray(result)) {
+    if (result.length >= 2 && Number.isFinite(Number(result[0])) && Number.isFinite(Number(result[1]))) {
+      return { lat: Number(result[1]), lon: Number(result[0]) };
+    }
+    for (const value of result) {
+      const found = extractCoordinates(value, depth + 1);
+      if (found) return found;
+    }
+    return null;
+  }
+  if (typeof result !== 'object') return null;
+
+  const lat = result.lat ?? result.latitude;
+  const lon = result.lon ?? result.lng ?? result.longitude;
+  if (lat != null && lon != null && Number.isFinite(Number(lat)) && Number.isFinite(Number(lon))) {
+    return { lat: Number(lat), lon: Number(lon), source: result };
+  }
+  for (const key of ['result', 'results', 'data', 'feature', 'features', 'geometry', 'coordinates', 'center', 'location']) {
+    if (result[key] == null) continue;
+    const found = extractCoordinates(result[key], depth + 1);
+    if (found) return { ...found, source: found.source || result };
+  }
+  return null;
+}
+
+function isFlorestiResult(result, coordinates) {
+  if (!coordinates || !isFlorestiCoordinate(coordinates.lat, coordinates.lon)) return false;
+  const locality = getLocality(coordinates.source) || getLocality(result);
+  // When the geocoder provides a locality, reject explicit non-Florești matches.
+  return !locality || normalize(locality).includes(normalize(PRIORITY_CITY));
 }
 
 function isMihaiViteazul(street) {
-  const name = normalize(street).replace(/^strada?\s+/, '');
-  return name === 'mihai viteazul';
+  return normalize(street).replace(/^strada?\s+/, '') === 'mihai viteazul';
 }
 
 export default function SearchPanel({ onSelectDestination }) {
@@ -72,6 +106,7 @@ export default function SearchPanel({ onSelectDestination }) {
     const value = event.target.value;
     setQ(value);
     setOpen(true);
+    setError(null);
     if (value.trim()) {
       setShowCacheOnFocus(false);
       setCachedAddresses([]);
@@ -95,15 +130,12 @@ export default function SearchPanel({ onSelectDestination }) {
     clearTimeout(debounceRef.current);
     setLoading(true);
     setError(null);
-
     debounceRef.current = setTimeout(async () => {
       try {
         const data = await searchStreets(query, PRIORITY_CITY);
         if (controller.signal.aborted) return;
-        // The API's location parameter is not sufficient: filter again so matches
-        // from Varvareuca or any other locality can never be selected.
-        const items = (data.results || [])
-          .filter((item) => item.type === 'street')
+        // The API location parameter alone is not a filter; exclude all other towns.
+        const items = (data.results || []).filter((item) => item.type === 'street')
           .filter((item) => normalize(item.parent_name) === normalize(PRIORITY_CITY))
           .map((item) => item.name === 'str. 9 Mai' ? { ...item, name: 'Strada 9 Mai' } : item);
         setResults(items);
@@ -121,87 +153,73 @@ export default function SearchPanel({ onSelectDestination }) {
         if (!controller.signal.aborted) setLoading(false);
       }
     }, 300);
-
-    return () => {
-      clearTimeout(debounceRef.current);
-      controller.abort();
-    };
+    return () => { clearTimeout(debounceRef.current); controller.abort(); };
   }, [q]);
 
   const handleStreetClick = (street) => {
     setSelectedStreet(street.name === 'str. 9 Mai' ? { ...street, name: 'Strada 9 Mai' } : street);
     setCachedAddresses([]);
     setShowCacheOnFocus(false);
+    setError(null);
+  };
+
+  const resolveAddress = async (street, building, cachedItem = null) => {
+    // Use existing cache only when it is within the Florești area.
+    if (cachedItem?.lat != null && cachedItem?.lon != null && isFlorestiCoordinate(cachedItem.lat, cachedItem.lon)) {
+      return { lat: Number(cachedItem.lat), lon: Number(cachedItem.lon) };
+    }
+    const cached = getCachedGeocode(street, building, PRIORITY_CITY);
+    if (cached && isFlorestiCoordinate(cached.lat, cached.lon)) return cached;
+
+    const result = await geocodeBuilding(street, building, PRIORITY_CITY);
+    const coordinates = extractCoordinates(result);
+    if (!isFlorestiResult(result, coordinates)) return null;
+    return { lat: coordinates.lat, lon: coordinates.lon };
   };
 
   const selectCachedAddress = async (item) => {
-    let lat = Number(item.lat);
-    let lon = Number(item.lon);
-    if (!isFlorestiCoordinate(lat, lon)) {
-      lat = lon = NaN;
-      const cached = getCachedGeocode(item.street, item.building, PRIORITY_CITY);
-      if (cached && isFlorestiCoordinate(cached.lat, cached.lon)) {
-        lat = cached.lat;
-        lon = cached.lon;
+    setError(null);
+    try {
+      const coordinates = await resolveAddress(item.street, item.building, item);
+      if (!coordinates) {
+        setError('Geocodarea nu a returnat o poziție validă în Florești pentru această adresă.');
+        return;
       }
+      addAddressToCache(item.street, item.building, PRIORITY_CITY, coordinates.lat, coordinates.lon);
+      onSelectDestination({ ...coordinates, label: `${item.street}, ${item.building}, ${PRIORITY_CITY}`, street: item.street, building: item.building, city: PRIORITY_CITY }, false);
+      resetAfterSelect();
+    } catch (e) {
+      console.warn('Geocoding error for cached address:', e);
+      setError('Serviciul de geocodare nu a răspuns. Încearcă din nou.');
     }
-    if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
-      try {
-        const geo = await geocodeBuilding(item.street, item.building, PRIORITY_CITY);
-        if (isFlorestiCoordinate(geo?.lat, geo?.lon)) {
-          lat = Number(geo.lat);
-          lon = Number(geo.lon);
-          setGeocodeCache(item.street, item.building, lat, lon, PRIORITY_CITY);
-          addAddressToCache(item.street, item.building, PRIORITY_CITY, lat, lon);
-        }
-      } catch (e) {
-        console.warn('Geocoding error for cached address:', e);
-      }
-    }
-    if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
-      setError('Nu am găsit coordonatele corecte în Florești. Caută din nou adresa.');
-      return;
-    }
-    onSelectDestination({ lat, lon, label: `${item.street}, ${item.building}, ${PRIORITY_CITY}`, street: item.street, building: item.building, city: PRIORITY_CITY }, false);
-    resetAfterSelect();
   };
 
   const handleBuildingClick = async (building) => {
     if (!selectedStreet) return;
+    setError(null);
     const street = selectedStreet.name;
     const house = String(building).trim();
     let coordinates = null;
-
-    // A user-confirmed map point for the circled building.
     if (isMihaiViteazul(street) && house === '9') {
       coordinates = MIHAI_VITEAZUL_9;
     } else if (normalize(street) === 'strada 9 mai' && MANUAL_COORDS[house]) {
       coordinates = MANUAL_COORDS[house];
     } else {
-      const cached = getCachedGeocode(street, house, PRIORITY_CITY);
-      if (cached && isFlorestiCoordinate(cached.lat, cached.lon)) coordinates = cached;
-      if (!coordinates) {
-        try {
-          const geo = await geocodeBuilding(street, house, PRIORITY_CITY);
-          if (isFlorestiCoordinate(geo?.lat, geo?.lon)) {
-            coordinates = { lat: Number(geo.lat), lon: Number(geo.lon) };
-          }
-        } catch (e) {
-          console.warn('Geocoding error', e);
-        }
+      try {
+        coordinates = await resolveAddress(street, house);
+      } catch (e) {
+        console.warn('Geocoding error', e);
+        setError('Serviciul de geocodare nu a răspuns. Încearcă din nou.');
+        return;
       }
     }
-
-    // Never route an unlocated house to a generic city center or street centroid;
-    // those fallbacks caused unrelated addresses (e.g. house 15) to be selected.
+    // Never use a generic city center/street centroid for a house destination.
     if (!coordinates || !isFlorestiCoordinate(coordinates.lat, coordinates.lon)) {
-      setError('Nu am găsit poziția exactă a casei în Florești; nu am pornit o rută greșită.');
+      setError('Nu am găsit o poziție validă pentru casa selectată în Florești. Verifică serviciul de geocodare.');
       return;
     }
-
-    const { lat, lon } = coordinates;
-    addAddressToCache(street, house, PRIORITY_CITY, lat, lon);
-    onSelectDestination({ lat, lon, label: `${street}, ${house}, ${PRIORITY_CITY}`, street, building: building, city: PRIORITY_CITY }, false);
+    addAddressToCache(street, house, PRIORITY_CITY, coordinates.lat, coordinates.lon);
+    onSelectDestination({ ...coordinates, label: `${street}, ${house}, ${PRIORITY_CITY}`, street, building, city: PRIORITY_CITY }, false);
     resetAfterSelect();
   };
 
@@ -223,41 +241,39 @@ export default function SearchPanel({ onSelectDestination }) {
   return (
     <div className="absolute top-3 left-3 right-3 z-30">
       <div className="bg-white/30 backdrop-blur-sm border border-white/40 rounded-xl flex items-center px-3 py-2 gap-2">
-        {selectedStreet ? <button onClick={() => setSelectedStreet(null)} className="text-black/70"><ArrowLeft size={20} /></button> : <Search size={20} className="text-black/70" />}
+        {selectedStreet ? <button onClick={() => { setSelectedStreet(null); setError(null); }} className="text-black/70"><ArrowLeft size={20} /></button> : <Search size={20} className="text-black/70" />}
         <input ref={inputRef} type="text" value={selectedStreet ? `${selectedStreet.name}, ${PRIORITY_CITY}` : q} onChange={handleInputChange} onFocus={handleInputFocus} placeholder={selectedStreet ? 'Выберите номер дома...' : 'Поиск улицы...'} className="flex-1 outline-none text-black placeholder:text-black/50 bg-transparent" />
         {(q || selectedStreet) && <button onClick={reset} className="text-black/50"><X size={18} /></button>}
       </div>
-      {(open || selectedStreet) && (
-        <div className="mt-2 bg-white/30 backdrop-blur-sm border border-white/40 rounded-xl max-h-[60vh] overflow-auto">
-          {!selectedStreet && <>
-            {showCacheOnFocus && cachedAddresses.length > 0 && !q.trim() && <div>
-              <div className="px-3 py-2 text-[12px] font-semibold text-black/70 border-b border-white/30">📍 Adrese recente</div>
-              {cachedAddresses.map((item, index) => <div key={`cache-${index}`} className="flex items-center justify-between px-3 py-2 border-b border-white/30">
-                <button onClick={() => selectCachedAddress(item)} className="flex-1 text-left"><div className="font-medium text-black">{item.address}</div><div className="text-[10px] text-black/50">{item.validated ? '✓' : ''}</div></button>
-                <button onClick={() => handleDeleteCacheItem(item.address)} className="text-black/40"><X size={14} /></button>
-              </div>)}
-            </div>}
-            {q.trim().length >= 2 && <>
-              {loading && <div className="px-4 py-3 text-black/70">Caut...</div>}
-              {error && <div className="px-4 py-3 text-red-700">{error}</div>}
-              {!loading && !error && results.length === 0 && <div className="px-4 py-3 text-black/70">Nu există rezultate în Florești.</div>}
-              {results.map((street) => <button key={street.id} onClick={() => handleStreetClick(street)} className="w-full text-left px-3 py-2.5 flex gap-3 border-b border-white/30 bg-amber-50/30">
-                <div className="w-9 h-9 rounded-full bg-amber-500/70 flex items-center justify-center text-white"><MapPin size={18} /></div>
-                <div className="flex-1"><div className="text-black font-medium">{street.name}<span className="text-amber-600 text-xs ml-2">⭐</span></div><div className="text-black/60 text-xs">Florești · {street.count} case</div></div><ChevronRight size={16} className="text-black/40" />
-              </button>)}
-            </>}
-            {q.trim().length === 1 && searchHistory.length > 0 && <div>
-              <div className="px-3 py-2 text-[12px] font-semibold text-black/70 border-b border-white/30">📜 Căutări recente</div>
-              {searchHistory.map((item) => <div key={item.id} className="flex items-center justify-between px-3 py-2 border-b border-white/30"><button onClick={() => setQ(item.query)} className="flex-1 text-left text-black">{item.query}</button><button onClick={() => handleDeleteHistoryItem(item.id)} className="text-black/40"><X size={14} /></button></div>)}
-            </div>}
-          </>}
-          {selectedStreet && <div className="p-3">
-            {error && <div className="text-red-700 mb-2">{error}</div>}
-            <div className="text-black font-bold mb-2">Выберите номер дома ({selectedStreet.buildings?.length || 0}):</div>
-            <div className="grid grid-cols-4 sm:grid-cols-6 gap-2">{(selectedStreet.buildings || []).map((building) => <button key={building} onClick={() => handleBuildingClick(building)} className="px-2 py-3 rounded-xl bg-white/40 border border-white/50 text-black font-bold flex justify-center gap-1"><Building2 size={13} className="text-black/60" /> {building}</button>)}</div>
+      {(open || selectedStreet) && <div className="mt-2 bg-white/30 backdrop-blur-sm border border-white/40 rounded-xl max-h-[60vh] overflow-auto">
+        {!selectedStreet && <>
+          {showCacheOnFocus && cachedAddresses.length > 0 && !q.trim() && <div>
+            <div className="px-3 py-2 text-[12px] font-semibold text-black/70 border-b border-white/30">📍 Adrese recente</div>
+            {cachedAddresses.map((item, index) => <div key={`cache-${index}`} className="flex items-center justify-between px-3 py-2 border-b border-white/30">
+              <button onClick={() => selectCachedAddress(item)} className="flex-1 text-left"><div className="font-medium text-black">{item.address}</div><div className="text-[10px] text-black/50">{item.validated ? '✓' : ''}</div></button>
+              <button onClick={() => handleDeleteCacheItem(item.address)} className="text-black/40"><X size={14} /></button>
+            </div>)}
           </div>}
-        </div>
-      )}
+          {q.trim().length >= 2 && <>
+            {loading && <div className="px-4 py-3 text-black/70">Caut...</div>}
+            {error && <div className="px-4 py-3 text-red-700">{error}</div>}
+            {!loading && !error && results.length === 0 && <div className="px-4 py-3 text-black/70">Nu există rezultate în Florești.</div>}
+            {results.map((street) => <button key={street.id} onClick={() => handleStreetClick(street)} className="w-full text-left px-3 py-2.5 flex gap-3 border-b border-white/30 bg-amber-50/30">
+              <div className="w-9 h-9 rounded-full bg-amber-500/70 flex items-center justify-center text-white"><MapPin size={18} /></div>
+              <div className="flex-1"><div className="text-black font-medium">{street.name}<span className="text-amber-600 text-xs ml-2">⭐</span></div><div className="text-black/60 text-xs">Florești · {street.count} case</div></div><ChevronRight size={16} className="text-black/40" />
+            </button>)}
+          </>}
+          {q.trim().length === 1 && searchHistory.length > 0 && <div>
+            <div className="px-3 py-2 text-[12px] font-semibold text-black/70 border-b border-white/30">📜 Căutări recente</div>
+            {searchHistory.map((item) => <div key={item.id} className="flex items-center justify-between px-3 py-2 border-b border-white/30"><button onClick={() => setQ(item.query)} className="flex-1 text-left text-black">{item.query}</button><button onClick={() => handleDeleteHistoryItem(item.id)} className="text-black/40"><X size={14} /></button></div>)}
+          </div>}
+        </>}
+        {selectedStreet && <div className="p-3">
+          {error && <div className="text-red-700 mb-2">{error}</div>}
+          <div className="text-black font-bold mb-2">Выберите номер дома ({selectedStreet.buildings?.length || 0}):</div>
+          <div className="grid grid-cols-4 sm:grid-cols-6 gap-2">{(selectedStreet.buildings || []).map((building) => <button key={building} onClick={() => handleBuildingClick(building)} className="px-2 py-3 rounded-xl bg-white/40 border border-white/50 text-black font-bold flex justify-center gap-1"><Building2 size={13} className="text-black/60" /> {building}</button>)}</div>
+        </div>}
+      </div>}
     </div>
   );
 }
