@@ -48,13 +48,16 @@ def distance_meters(lat1, lon1, lat2, lon2):
 
 def extract_coordinates(data):
     if isinstance(data, dict):
-        for lat_key, lon_key in (
+        pairs = (
             ("lat", "lon"),
             ("lat", "lng"),
             ("latitude", "longitude"),
-        ):
+        )
+
+        for lat_key, lon_key in pairs:
             lat = data.get(lat_key)
             lon = data.get(lon_key)
+
             if lat is not None and lon is not None:
                 try:
                     return float(lat), float(lon)
@@ -102,7 +105,9 @@ async def map_style():
         "sources": {
             "osm": {
                 "type": "raster",
-                "tiles": ["https://tile.openstreetmap.org/{z}/{x}/{y}.png"],
+                "tiles": [
+                    "https://tile.openstreetmap.org/{z}/{x}/{y}.png"
+                ],
                 "tileSize": 256,
                 "attribution": "© OpenStreetMap contributors",
             }
@@ -155,7 +160,11 @@ async def search(
                 detail="Street search unavailable",
             ) from exc
 
-        items = data if isinstance(data, list) else data.get("results", [])
+        items = (
+            data
+            if isinstance(data, list)
+            else data.get("results", [])
+        )
     else:
         try:
             async with httpx.AsyncClient(timeout=20) as client:
@@ -179,6 +188,7 @@ async def search(
             ) from exc
 
         items = []
+
         for item in data:
             address = item.get("address") or {}
             locality = (
@@ -193,8 +203,15 @@ async def search(
 
             items.append(
                 {
-                    "id": str(item.get("osm_id") or item.get("place_id")),
-                    "name": item.get("name") or item.get("display_name") or q,
+                    "id": str(
+                        item.get("osm_id")
+                        or item.get("place_id")
+                    ),
+                    "name": (
+                        item.get("name")
+                        or item.get("display_name")
+                        or q
+                    ),
                     "parent_name": "Florești",
                     "type": "street",
                     "count": 0,
@@ -203,6 +220,7 @@ async def search(
             )
 
     results = []
+
     for item in items:
         if item.get("type") not in (None, "street"):
             continue
@@ -212,6 +230,7 @@ async def search(
             or item.get("city")
             or item.get("locality")
         )
+
         if parent and normalize(parent) != "floresti":
             continue
 
@@ -239,6 +258,7 @@ async def geocode(
 
     if MAPMD_GEOCODE_URL:
         headers = {}
+
         if MAPMD_API_KEY:
             headers["Authorization"] = f"Bearer {MAPMD_API_KEY}"
 
@@ -256,6 +276,7 @@ async def geocode(
                 )
                 response.raise_for_status()
                 data = response.json()
+
             coordinates = extract_coordinates(data)
         except httpx.HTTPError as exc:
             raise HTTPException(
@@ -265,6 +286,7 @@ async def geocode(
     else:
         try:
             data = await nominatim_geocode(street, building)
+
             for item in data:
                 try:
                     lat = float(item["lat"])
@@ -289,5 +311,27 @@ async def geocode(
 
     if not (-90 <= lat <= 90 and -180 <= lon <= 180):
         raise HTTPException(
-            status_code=404***
-
+            status_code=404,
+            detail="Invalid geocoding result",
+        )
+
+    if distance_meters(
+        lat,
+        lon,
+        *FLORESTI_CENTER,
+    ) > MAX_DISTANCE_METERS:
+        raise HTTPException(
+            status_code=404,
+            detail="Address is outside Florești",
+        )
+
+    return {
+        "lat": lat,
+        "lon": lon,
+        "street": street,
+        "building": building,
+        "city": "Florești",
+    }
+
+
+app.include_router(api_router)
