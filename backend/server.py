@@ -1,10 +1,12 @@
 import os
+import re
+from math import atan2, cos, radians, sin, sqrt
+
 import httpx
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import APIRouter, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 
-app = FastAPI()
-api_router = APIRouter(prefix="/api")
+app = FastAPI(title="Navigator MD Backend")
 
 app.add_middleware(
     CORSMiddleware,
@@ -14,8 +16,81 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+api_router = APIRouter(prefix="/api")
+
 MAPMD_API_KEY = os.getenv("MAPMD_API_KEY")
-MAPMD_BASE_URL = "https://map.md/api"
+MAPMD_SEARCH_URL = os.getenv("MAPMD_SEARCH_URL")
+MAPMD_GEOCODE_URL = os.getenv("MAPMD_GEOCODE_URL")
+
+FLORESTI_CENTER = (47.89286, 28.29854)
+MAX_DISTANCE_METERS = 4000
+
+
+def normalize(value: str) -> str:
+    value = str(value or "").strip().lower()
+    value = value.replace("ș", "s").replace("ş", "s").replace("ț", "t").replace("ţ", "t")
+    value = re.sub(r"[^\w]+", "", value)
+    return value
+
+
+def distance_meters(lat1, lon1, lat2, lon2):
+    radius = 6371000
+    dlat = radians(lat2 - lat1)
+    dlon = radians(lon2 - lon1)
+    a = (
+        sin(dlat / 2) ** 2
+        + cos(radians(lat1)) * cos(radians(lat2)) * sin(dlon / 2) ** 2
+    )
+    return radius * 2 * atan2(sqrt(a), sqrt(1 - a))
+
+
+def extract_coordinates(data):
+    if isinstance(data, dict):
+        for lat_key, lon_key in (
+            ("lat", "lon"),
+            ("lat", "lng"),
+            ("latitude", "longitude"),
+        ):
+            lat = data.get(lat_key)
+            lon = data.get(lon_key)
+            if lat is not None and lon is not None:
+                try:
+                    return float(lat), float(lon)
+                except (TypeError, ValueError):
+                    pass
+
+        for key in ("result", "data", "geometry", "location", "center"):
+            found = extract_coordinates(data.get(key))
+            if found:
+                return found
+
+    if isinstance(data, list):
+        for item in data:
+            found = extract_coordinates(item)
+            if found:
+                return found
+
+    return None
+
+
+async def geocode_with_nominatim(street: str, building: str):
+    query = f"{street} {building}, Florești, Moldova"
+
+    async with httpx.AsyncClient(timeout=20) as client:
+        response = await client.get(
+            "https://nominatim.openstreetmap.org/search",
+            params={
+                "q": query,
+                "format": "json",
+                "addressdetails": 1,
+                "countrycodes": "md",
+                "limit": 5,
+            },
+            headers={"User-Agent": "Navigator-MD/1.0"},
+        )
+        response.raise_for_status()
+        return response.json()
+
 
 @api_router.get("/map_style")
 async def map_style():
@@ -30,80 +105,7 @@ async def map_style():
                 "attribution": "© OpenStreetMap contributors",
             }
         },
-        "layers": [{
-            "id": "osm-tiles",
-            "type": "raster",
-            "source": "osm",
-            "minzoom": 0,
-            "maxzoom": 19,
-        }],
-    }
-
-@api_router.get("/search")
-async def search(
-    q: str = Query(..., min_length=2),
-    location: str = "Florești",
-    lang: str = "ro",
-):
-    if not MAPMD_API_KEY:
-        raise HTTPException(500, "MAPMD_API_KEY is not configured")
-
-    try:
-        async with httpx.AsyncClient(timeout=20) as client:
-            response = await client.get(
-                f"{MAPMD_BASE_URL}/search",
-                params={"q": q, "location": location, "lang": lang},
-                headers={"Authorization": f"Bearer {MAPMD_API_KEY}"},
-            )
-            response.raise_for_status()
-            data = response.json()
-    except Exception as exc:
-        raise HTTPException(502, "Street search provider unavailable") from exc
-
-    results = data if isinstance(data, list) else data.get("results", [])
-    floresti = []
-
-    for item in results:
-        parent = str(item.get("parent_name") or "").strip().lower()
-        if parent.replace("ș", "s").replace("ş", "s") != "floresti":
-            continue
-        if item.get("type") == "street":
-            floresti.append(item)
-
-    return {"results": floresti}
-
-@api_router.get("/geocode")
-async def geocode(
-    street: str,
-    building: str,
-    city: str = "Florești",
-):
-    if normalize(city) != "floresti":
-        raise HTTPException(400, "Only addresses in Florești are supported")
-
-    try:
-        async with httpx.AsyncClient(timeout=20) as client:
-            response = await client.get(
-                f"{MAPMD_BASE_URL}/geocode",
-                params={
-                    "street": street,
-                    "building": building,
-                    "city": city,
-                    "lang": "ro",
-                },
-                headers={"Authorization": f"Bearer {MAPMD_API_KEY}"},
-            )
-            response.raise_for_status()
-            data = response.json()
-    except Exception as exc:
-        raise HTTPException(502, "Geocoding provider unavailable") from exc
-
-    lat = data.get("lat")
-    lon = data.get("lon") or data.get("lng")
-
-    if lat is None or lon is None:
-        raise HTTPException(404, "Exact address not found")
-
-    return {"lat": float(lat), "lon": float(lon)}
-
-app.include_router(api_router)
+        "layers": [
+            {
+                "id": "](#)***
+
