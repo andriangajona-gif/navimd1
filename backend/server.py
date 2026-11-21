@@ -15,7 +15,7 @@ from pydantic import BaseModel, Field
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
 logger = logging.getLogger("navigator_md")
 
-app = FastAPI(title="Navigator MD Backend", version="0.3.0")
+app = FastAPI(title="Navigator MD Backend", version="0.4.0")
 api_router = APIRouter(prefix="/api")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=False, allow_methods=["*"], allow_headers=["*"])
 
@@ -36,6 +36,17 @@ STREET_NAME_MAPPING = {
     "Strada Libertății": "str. Libertății",
 }
 STREET_REVERSE_MAPPING = {value: key for key, value in STREET_NAME_MAPPING.items()}
+
+FLORESTI_STREETS = [
+    "Strada Mihai Viteazul",
+    "Strada 9 Mai",
+    "Strada Alexandru Donnici",
+    "Strada Constantin Stamati",
+    "Strada Boris Glavan",
+    "Strada Libertății",
+    "Strada Crinilor",
+    "Strada Decebal",
+]
 
 MONGO_URL = os.getenv("MONGO_URL", "").strip()
 DB_NAME = os.getenv("DB_NAME", "navigator_md")
@@ -159,28 +170,63 @@ async def root():
 
 @api_router.get("/map_style")
 async def map_style():
-    return {"version": 8, "name": "osm-style", "sources": {"osm": {"type": "raster", "tiles": ["https://tile.openstreetmap.org/{z}/{x}/{y}.png"], "tileSize": 256, "attribution": "© OpenStreetMap contributors"}}, "layers": [{"id": "osm-tiles", "type": "raster", "source": "osm", "minzoom": 0, "maxzoom": 19}]}
+    return {
+        "version": 8,
+        "name": "osm-style",
+        "sources": {"osm": {"type": "raster", "tiles": ["https://tile.openstreetmap.org/{z}/{x}/{y}.png"], "tileSize": 256, "attribution": "© OpenStreetMap contributors"}},
+        "layers": [{"id": "osm-tiles", "type": "raster", "source": "osm", "minzoom": 0, "maxzoom": 19}],
+    }
 
 
 @api_router.get("/search")
 async def search(q: str = Query(..., min_length=2), location: str = Query("Florești"), lang: str = Query("ro")):
     if normalize(location) != "floresti":
         raise HTTPException(status_code=400, detail="Only Florești is supported")
-    items = await mapmd_search(q, location, lang)
+
+    provider_items: list[dict[str, Any]] = []
+    try:
+        provider_items = await mapmd_search(q, location, lang)
+    except HTTPException as exc:
+        if exc.status_code not in (502, 503):
+            raise
+
     results = []
-    for original in items:
+    seen_names = set()
+
+    for original in provider_items:
         if not isinstance(original, dict) or original.get("type") != "street":
             continue
         parent = original.get("parent_name") or original.get("city") or original.get("locality")
-        if normalize(parent) != "floresti":
+        if normalize(parent) not in ("", "floresti"):
             continue
         item = dict(original)
         api_name = str(item.get("name") or "")
-        item["name"] = STREET_REVERSE_MAPPING.get(api_name, api_name)
-        item["parent_name"] = "Florești"
-        item.setdefault("buildings", [])
-        item["count"] = len(item["buildings"])
-        results.append(item)
+        display_name = STREET_REVERSE_MAPPING.get(api_name, api_name)
+        if normalize(display_name) not in seen_names:
+            item["name"] = display_name
+            item["parent_name"] = "Florești"
+            item.setdefault("buildings", [])
+            item["count"] = len(item["buildings"])
+            results.append(item)
+            seen_names.add(normalize(display_name))
+
+    query_normalized = normalize(q)
+    for street_name in FLORESTI_STREETS:
+        if query_normalized not in normalize(street_name):
+            continue
+        api_name = STREET_NAME_MAPPING.get(street_name, street_name)
+        if normalize(api_name) in seen_names:
+            continue
+        results.append({
+            "id": f"floresti-{normalize(street_name)}",
+            "name": street_name,
+            "parent_name": "Florești",
+            "type": "street",
+            "count": 0,
+            "buildings": [],
+        })
+        seen_names.add(normalize(api_name))
+
     return {"results": results, "priority_city": "Florești"}
 
 
