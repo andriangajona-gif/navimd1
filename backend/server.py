@@ -1,12 +1,21 @@
+import logging
 import os
 import re
-from math import atan2, cos, radians, sin, sqrt
+import unicodedata
+import uuid
+from datetime import datetime, timezone
+from typing import Any, Optional
 
 import httpx
 from fastapi import APIRouter, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel, Field
 
-app = FastAPI(title="Navigator MD Backend")
+logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
+logger = logging.getLogger("navigator_md")
+
+app = FastAPI(title="Navigator MD Backend", version="0.2.0")
+api_router = APIRouter(prefix="/api")
 
 app.add_middleware(
     CORSMiddleware,
@@ -16,85 +25,130 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-api_router = APIRouter(prefix="/api")
-
-MAPMD_API_KEY = os.getenv("MAPMD_API_KEY")
-MAPMD_SEARCH_URL = os.getenv("MAPMD_SEARCH_URL")
-MAPMD_GEOCODE_URL = os.getenv("MAPMD_GEOCODE_URL")
-
+MAPMD_API_KEY = os.getenv("MAPMD_API_KEY", "").strip()
+MAPMD_SEARCH_URL = "https://map.md/api/companies/webmap/search_street"
+NOMINATIM_URL = "https://nominatim.openstreetmap.org/search"
+OSRM_BASE_URL = "https://router.project-osrm.org"
 FLORESTI_CENTER = (47.89286, 28.29854)
-MAX_DISTANCE_METERS = 4000
+MAX_FLORESTI_DISTANCE_METERS = 4000
+
+# map.md uses abbreviated street names in some responses.
+STREET_NAME_MAPPING = {
+    "Strada 9 Mai": "str. 9 Mai",
+    "Strada Alexandru Donnici": "str. Alexandru Donnici",
+    "Strada Constantin Stamati": "str. Constantin Stamati",
+    "Strada Boris Glavan": "str. Boris Glavan",
+    "Strada Libertății": "str. Libertății",
+}
+STREET_REVERSE_MAPPING = {value: key for key, value in STREET_NAME_MAPPING.items()}
+
+# Search history stays usable if MongoDB is not configured.
+MONGO_URL = os.getenv("MONGO_URL", "").strip()
+DB_NAME = os.getenv("DB_NAME", "navigator_md")
+search_history: list[dict[str, Any]] = []
+mongo_collection = None
+mongo_client = None
+if MONGO_URL:
+    try:
+        from motor.motor_asyncio import AsyncIOMotorClient
+
+        mongo_client = AsyncIOMotorClient(MONGO_URL, serverSelectionTimeoutMS=3000)
+        mongo_collection = mongo_client[DB_NAME]["searches"]
+    except Exception:
+        logger.exception("MongoDB initialization failed; using in-memory search history")
 
 
-def normalize(value):
-    value = str(value or "").strip().lower()
-    value = value.replace("ș", "s").replace("ş", "s")
-    value = value.replace("ț", "t").replace("ţ", "t")
-    return re.sub(r"[^\w]+", "", value)
+class RouteRequest(BaseModel):
+    from_lat: float = Field(ge=-90, le=90)
+    from_lon: float = Field(ge=-180, le=180)
+    to_lat: float = Field(ge=-90, le=90)
+    to_lon: float = Field(ge=-180, le=180)
+    profile: str = "driving"
 
 
-def distance_meters(lat1, lon1, lat2, lon2):
-    radius = 6371000
+def normalize(value: Any) -> str:
+    text = unicodedata.normalize("NFKD", str(value or ""))
+    text = "".join(char for char in text if not unicodedata.combining(char))
+    text = text.lower().replace("ş", "s").replace("ţ", "t")
+    return re.sub(r"[^a-z0-9]+", "", text)
+
+
+def normalize_street(value: Any) -> str:
+    text = normalize(value)
+    for prefix in ("strada", "str", "street", "ulita", "ul"):
+        if text.startswith(prefix):
+            text = text[len(prefix):]
+            break
+    return text
+
+
+def distance_meters(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    from math import atan2, cos, radians, sin, sqrt
+
+    radius = 6_371_000
     dlat = radians(lat2 - lat1)
     dlon = radians(lon2 - lon1)
-    a = (
-        sin(dlat / 2) ** 2
-        + cos(radians(lat1))
-        * cos(radians(lat2))
-        * sin(dlon / 2) ** 2
-    )
+    a = sin(dlat / 2) ** 2 + cos(radians(lat1)) * cos(radians(lat2)) * sin(dlon / 2) ** 2
     return radius * 2 * atan2(sqrt(a), sqrt(1 - a))
 
 
-def extract_coordinates(data):
+def exact_nominatim_match(item: dict[str, Any], street: str, building: str, city: str) -> bool:
+    address = item.get("address") or {}
+    house_number = str(address.get("house_number") or address.get("building") or "").strip()
+    if normalize(house_number) != normalize(building):
+        return False
+
+    actual_street = (
+        address.get("road")
+        or address.get("pedestrian")
+        or address.get("residential")
+        or address.get("street")
+        or ""
+    )
+    if normalize_street(actual_street) != normalize_street(street):
+        return False
+
+    locality = (
+        address.get("city")
+        or address.get("town")
+        or address.get("village")
+        or address.get("municipality")
+        or ""
+    )
+    return normalize(locality) == normalize(city)
+
+
+async def mapmd_search(query: str, location: str, lang: str) -> list[dict[str, Any]]:
+    if not MAPMD_API_KEY:
+        raise HTTPException(
+            status_code=503,
+            detail="MAPMD_API_KEY is not configured in the backend environment",
+        )
+
+    try:
+        async with httpx.AsyncClient(timeout=20) as client:
+            response = await client.get(
+                MAPMD_SEARCH_URL,
+                params={"q": query, "location": location, "lang": lang},
+                auth=(MAPMD_API_KEY, ""),
+            )
+            response.raise_for_status()
+            data = response.json()
+    except httpx.HTTPStatusError as exc:
+        logger.warning("map.md search returned HTTP %s", exc.response.status_code)
+        raise HTTPException(status_code=502, detail="Street search provider failed") from exc
+    except (httpx.HTTPError, ValueError) as exc:
+        logger.exception("map.md search request failed")
+        raise HTTPException(status_code=502, detail="Street search provider unavailable") from exc
+
     if isinstance(data, dict):
-        pairs = (
-            ("lat", "lon"),
-            ("lat", "lng"),
-            ("latitude", "longitude"),
-        )
-
-        for lat_key, lon_key in pairs:
-            lat = data.get(lat_key)
-            lon = data.get(lon_key)
-
-            if lat is not None and lon is not None:
-                try:
-                    return float(lat), float(lon)
-                except (TypeError, ValueError):
-                    pass
-
-        for key in ("result", "data", "geometry", "location", "center"):
-            found = extract_coordinates(data.get(key))
-            if found:
-                return found
-
-    if isinstance(data, list):
-        for item in data:
-            found = extract_coordinates(item)
-            if found:
-                return found
-
-    return None
+        data = data.get("results", data.get("data", []))
+    return data if isinstance(data, list) else []
 
 
-async def nominatim_geocode(street, building):
-    query = f"{street} {building}, Florești, Moldova"
-
-    async with httpx.AsyncClient(timeout=20) as client:
-        response = await client.get(
-            "https://nominatim.openstreetmap.org/search",
-            params={
-                "q": query,
-                "format": "json",
-                "addressdetails": 1,
-                "countrycodes": "md",
-                "limit": 5,
-            },
-            headers={"User-Agent": "Navigator-MD/1.0"},
-        )
-        response.raise_for_status()
-        return response.json()
+@api_router.get("/")
+async def root():
+    return {"message": "Navigator MD API", "status": "ok"}
 
 
 @api_router.get("/map_style")
@@ -105,9 +159,7 @@ async def map_style():
         "sources": {
             "osm": {
                 "type": "raster",
-                "tiles": [
-                    "https://tile.openstreetmap.org/{z}/{x}/{y}.png"
-                ],
+                "tiles": ["https://tile.openstreetmap.org/{z}/{x}/{y}.png"],
                 "tileSize": 256,
                 "attribution": "© OpenStreetMap contributors",
             }
@@ -127,211 +179,269 @@ async def map_style():
 @api_router.get("/search")
 async def search(
     q: str = Query(..., min_length=2),
-    location: str = "Florești",
-    lang: str = "ro",
+    location: str = Query("Florești"),
+    lang: str = Query("ro"),
 ):
     if normalize(location) != "floresti":
-        raise HTTPException(
-            status_code=400,
-            detail="Only Florești is supported",
-        )
+        raise HTTPException(status_code=400, detail="Only Florești is supported")
 
-    if MAPMD_SEARCH_URL:
-        headers = {}
-        if MAPMD_API_KEY:
-            headers["Authorization"] = f"Bearer {MAPMD_API_KEY}"
-
-        try:
-            async with httpx.AsyncClient(timeout=20) as client:
-                response = await client.get(
-                    MAPMD_SEARCH_URL,
-                    params={
-                        "q": q,
-                        "location": location,
-                        "lang": lang,
-                    },
-                    headers=headers,
-                )
-                response.raise_for_status()
-                data = response.json()
-        except httpx.HTTPError as exc:
-            raise HTTPException(
-                status_code=502,
-                detail="Street search unavailable",
-            ) from exc
-
-        items = (
-            data
-            if isinstance(data, list)
-            else data.get("results", [])
-        )
-    else:
-        try:
-            async with httpx.AsyncClient(timeout=20) as client:
-                response = await client.get(
-                    "https://nominatim.openstreetmap.org/search",
-                    params={
-                        "q": f"{q}, Florești, Moldova",
-                        "format": "json",
-                        "addressdetails": 1,
-                        "countrycodes": "md",
-                        "limit": 20,
-                    },
-                    headers={"User-Agent": "Navigator-MD/1.0"},
-                )
-                response.raise_for_status()
-                data = response.json()
-        except httpx.HTTPError as exc:
-            raise HTTPException(
-                status_code=502,
-                detail="Street search unavailable",
-            ) from exc
-
-        items = []
-
-        for item in data:
-            address = item.get("address") or {}
-            locality = (
-                address.get("city")
-                or address.get("town")
-                or address.get("village")
-                or address.get("municipality")
-            )
-
-            if normalize(locality) != "floresti":
-                continue
-
-            items.append(
-                {
-                    "id": str(
-                        item.get("osm_id")
-                        or item.get("place_id")
-                    ),
-                    "name": (
-                        item.get("name")
-                        or item.get("display_name")
-                        or q
-                    ),
-                    "parent_name": "Florești",
-                    "type": "street",
-                    "count": 0,
-                    "buildings": [],
-                }
-            )
-
+    items = await mapmd_search(q, location, lang)
     results = []
-
-    for item in items:
-        if item.get("type") not in (None, "street"):
+    for original in items:
+        if not isinstance(original, dict) or original.get("type") != "street":
+            continue
+        parent = original.get("parent_name") or original.get("city") or original.get("locality")
+        if normalize(parent) != "floresti":
             continue
 
-        parent = (
-            item.get("parent_name")
-            or item.get("city")
-            or item.get("locality")
-        )
-
-        if parent and normalize(parent) != "floresti":
-            continue
-
+        item = dict(original)
+        api_name = str(item.get("name") or "")
+        item["name"] = STREET_REVERSE_MAPPING.get(api_name, api_name)
         item["parent_name"] = "Florești"
-        item["type"] = "street"
         item.setdefault("buildings", [])
+        item["count"] = len(item["buildings"]) if isinstance(item["buildings"], list) else 0
         results.append(item)
 
-    return {"results": results}
+    return {"results": results, "priority_city": "Florești"}
+
+
+@api_router.get("/buildings")
+async def get_buildings(
+    street_name: str = Query(...),
+    city: str = Query("Florești"),
+    lang: str = Query("ro"),
+):
+    if normalize(city) != "floresti":
+        raise HTTPException(status_code=400, detail="Only Florești is supported")
+
+    api_name = STREET_NAME_MAPPING.get(street_name, street_name)
+    items = await mapmd_search(api_name, city, lang)
+    wanted = normalize_street(street_name)
+    for item in items:
+        if not isinstance(item, dict) or item.get("type") != "street":
+            continue
+        parent = item.get("parent_name") or item.get("city") or item.get("locality")
+        if normalize(parent) == "floresti" and normalize_street(item.get("name")) == wanted:
+            buildings = item.get("buildings", [])
+            return {"buildings": buildings if isinstance(buildings, list) else []}
+    return {"buildings": []}
 
 
 @api_router.get("/geocode")
 async def geocode(
-    street: str,
-    building: str,
-    city: str = "Florești",
+    street: str = Query(..., min_length=1),
+    building: str = Query(..., min_length=1),
+    city: str = Query("Florești"),
 ):
     if normalize(city) != "floresti":
-        raise HTTPException(
-            status_code=400,
-            detail="Only Florești addresses are supported",
-        )
+        raise HTTPException(status_code=400, detail="Only Florești addresses are supported")
 
-    coordinates = None
+    api_street = STREET_NAME_MAPPING.get(street, street)
+    query = f"{building} {api_street}, Florești, Moldova"
+    try:
+        async with httpx.AsyncClient(timeout=20) as client:
+            response = await client.get(
+                NOMINATIM_URL,
+                params={
+                    "q": query,
+                    "format": "jsonv2",
+                    "addressdetails": 1,
+                    "countrycodes": "md",
+                    "limit": 10,
+                    "accept-language": "ro",
+                },
+                headers={"User-Agent": "Navigator-MD/1.0 (address lookup)"},
+            )
+            response.raise_for_status()
+            candidates = response.json()
+    except httpx.HTTPStatusError as exc:
+        logger.warning("Nominatim returned HTTP %s", exc.response.status_code)
+        raise HTTPException(status_code=502, detail="Geocoding provider failed") from exc
+    except (httpx.HTTPError, ValueError) as exc:
+        logger.exception("Nominatim geocoding request failed")
+        raise HTTPException(status_code=502, detail="Geocoding provider unavailable") from exc
 
-    if MAPMD_GEOCODE_URL:
-        headers = {}
+    if not isinstance(candidates, list):
+        candidates = []
 
-        if MAPMD_API_KEY:
-            headers["Authorization"] = f"Bearer {MAPMD_API_KEY}"
+    match = next(
+        (
+            item for item in candidates
+            if isinstance(item, dict) and exact_nominatim_match(item, api_street, building, city)
+        ),
+        None,
+    )
+    if not match:
+        raise HTTPException(status_code=404, detail="Exact house address not found in Florești")
 
-        try:
-            async with httpx.AsyncClient(timeout=20) as client:
-                response = await client.get(
-                    MAPMD_GEOCODE_URL,
-                    params={
-                        "street": street,
-                        "building": building,
-                        "city": city,
-                        "lang": "ro",
-                    },
-                    headers=headers,
-                )
-                response.raise_for_status()
-                data = response.json()
-
-            coordinates = extract_coordinates(data)
-        except httpx.HTTPError as exc:
-            raise HTTPException(
-                status_code=502,
-                detail="Geocoding unavailable",
-            ) from exc
-    else:
-        try:
-            data = await nominatim_geocode(street, building)
-
-            for item in data:
-                try:
-                    lat = float(item["lat"])
-                    lon = float(item["lon"])
-                    coordinates = (lat, lon)
-                    break
-                except (KeyError, TypeError, ValueError):
-                    continue
-        except httpx.HTTPError as exc:
-            raise HTTPException(
-                status_code=502,
-                detail="Geocoding unavailable",
-            ) from exc
-
-    if not coordinates:
-        raise HTTPException(
-            status_code=404,
-            detail="Exact address not found",
-        )
-
-    lat, lon = coordinates
+    try:
+        lat = float(match["lat"])
+        lon = float(match["lon"])
+    except (KeyError, TypeError, ValueError) as exc:
+        raise HTTPException(status_code=404, detail="Address has no valid coordinates") from exc
 
     if not (-90 <= lat <= 90 and -180 <= lon <= 180):
-        raise HTTPException(
-            status_code=404,
-            detail="Invalid geocoding result",
-        )
+        raise HTTPException(status_code=404, detail="Address has invalid coordinates")
+    if distance_meters(lat, lon, *FLORESTI_CENTER) > MAX_FLORESTI_DISTANCE_METERS:
+        raise HTTPException(status_code=404, detail="Address is outside Florești")
 
-    if distance_meters(
-        lat,
-        lon,
-        *FLORESTI_CENTER,
-    ) > MAX_DISTANCE_METERS:
-        raise HTTPException(
-            status_code=404,
-            detail="Address is outside Florești",
-        )
+    return {"lat": lat, "lon": lon, "street": street, "building": building, "city": "Florești"}
+
+
+def build_instruction(step: dict[str, Any]) -> str:
+    maneuver = step.get("maneuver") or {}
+    maneuver_type = maneuver.get("type", "")
+    modifier = maneuver.get("modifier", "")
+    name = step.get("name", "")
+    directions = {
+        "left": "налево",
+        "right": "направо",
+        "sharp left": "резко налево",
+        "sharp right": "резко направо",
+        "slight left": "слегка налево",
+        "slight right": "слегка направо",
+        "straight": "прямо",
+        "uturn": "разворот",
+    }
+    direction = directions.get(modifier, modifier)
+    if maneuver_type == "depart":
+        return f"Начните движение по {name}" if name else "Начните движение"
+    if maneuver_type == "arrive":
+        return "Вы прибыли в пункт назначения"
+    if maneuver_type == "turn":
+        return f"Поверните {direction} на {name}" if name else f"Поверните {direction}"
+    if maneuver_type == "new name":
+        return f"Продолжайте движение по {name}"
+    if maneuver_type in ("roundabout", "rotary"):
+        exit_number = maneuver.get("exit", 1)
+        return f"На круговом движении {exit_number}-й съезд на {name}" if name else f"На кругу {exit_number}-й съезд"
+    if maneuver_type == "continue":
+        return f"Продолжайте {direction} по {name}" if name else f"Продолжайте {direction}"
+    if maneuver_type in ("merge", "fork", "end of road"):
+        return f"Двигайтесь {direction} по {name}" if name else f"Двигайтесь {direction}"
+    return f"Двигайтесь по {name}" if name else "Продолжайте движение"
+
+
+@api_router.post("/route")
+async def get_route(req: RouteRequest):
+    profile_map = {
+        "driving": "driving",
+        "car": "driving",
+        "walking": "walking",
+        "foot": "walking",
+        "cycling": "cycling",
+    }
+    profile = profile_map.get(req.profile.lower(), "driving")
+    coordinates = f"{req.from_lon},{req.from_lat};{req.to_lon},{req.to_lat}"
+    url = f"{OSRM_BASE_URL}/route/v1/{profile}/{coordinates}"
+    try:
+        async with httpx.AsyncClient(timeout=30) as client:
+            response = await client.get(
+                url,
+                params={"steps": "true", "geometries": "geojson", "overview": "full", "annotations": "true"},
+            )
+            response.raise_for_status()
+            data = response.json()
+    except httpx.HTTPError as exc:
+        logger.exception("OSRM route request failed")
+        raise HTTPException(status_code=502, detail="Routing provider unavailable") from exc
+
+    if data.get("code") != "Ok" or not data.get("routes"):
+        raise HTTPException(status_code=404, detail="No route found")
+
+    route = data["routes"][0]
+    steps = []
+    for leg in route.get("legs", []):
+        for step in leg.get("steps", []):
+            maneuver = step.get("maneuver") or {}
+            steps.append(
+                {
+                    "distance": step.get("distance", 0),
+                    "duration": step.get("duration", 0),
+                    "name": step.get("name", ""),
+                    "instruction": build_instruction(step),
+                    "type": maneuver.get("type"),
+                    "modifier": maneuver.get("modifier"),
+                    "location": maneuver.get("location"),
+                    "geometry": step.get("geometry"),
+                }
+            )
+    return {
+        "distance": route.get("distance", 0),
+        "duration": route.get("duration", 0),
+        "geometry": route.get("geometry"),
+        "steps": steps,
+    }
+
+
+@api_router.post("/search/save")
+async def save_search(query: str = Query(..., min_length=1)):
+    normalized_query = query.strip()
+    if not normalized_query:
+        raise HTTPException(status_code=400, detail="Query cannot be empty")
+
+    record = {
+        "id": str(uuid.uuid4()),
+        "query": normalized_query,
+        "timestamp": datetime.now(timezone.utc),
+    }
+    if mongo_collection is not None:
+        try:
+            await mongo_collection.insert_one(record.copy())
+        except Exception:
+            logger.exception("Could not save search to MongoDB; keeping it in memory")
+    search_history.insert(0, record)
+    del search_history[100:]
+    return {"message": "Search saved", "id": record["id"]}
+
+
+@api_router.get("/search/history")
+async def get_search_history(limit: int = Query(20, ge=1, le=100)):
+    if mongo_collection is not None:
+        try:
+            cursor = mongo_collection.find({}, {"_id": 0}).sort("timestamp", -1).limit(limit)
+            history = []
+            async for record in cursor:
+                timestamp = record.get("timestamp")
+                history.append(
+                    {
+                        "id": record.get("id"),
+                        "query": record.get("query"),
+                        "timestamp": timestamp.isoformat() if hasattr(timestamp, "isoformat") else timestamp,
+                    }
+                )
+            return {"history": history}
+        except Exception:
+            logger.exception("Could not read MongoDB search history; using in-memory history")
 
     return {
-        "lat": lat,
-        "lon": lon,
-        "street": street,
-        "building": building,
-        "city": "Florești",
+        "history": [
+            {
+                "id": record["id"],
+                "query": record["query"],
+                "timestamp": record["timestamp"].isoformat(),
+            }
+            for record in search_history[:limit]
+        ]
     }
+
+
+@api_router.delete("/search/history/{search_id}")
+async def delete_search(search_id: str):
+    deleted = False
+    if mongo_collection is not None:
+        try:
+            result = await mongo_collection.delete_one({"id": search_id})
+            deleted = result.deleted_count > 0
+        except Exception:
+            logger.exception("Could not delete search from MongoDB")
+
+    old_length = len(search_history)
+    search_history[:] = [record for record in search_history if record["id"] != search_id]
+    deleted = deleted or len(search_history) < old_length
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Search not found")
+    return {"message": "Search deleted"}
 
 
 app.include_router(api_router)
